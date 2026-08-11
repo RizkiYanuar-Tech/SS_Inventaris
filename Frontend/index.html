@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scan Barang</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h2>📦 Scan Barang</h2>
+
+  <div id="scannerCard" class="card">
+    <div id="reader"></div>
+    <button class="btn-secondary" onclick="restartScanner()">🔄 Scan Ulang</button>
+  </div>
+
+  <div id="statusBox"></div>
+
+  <!-- Konfirmasi hasil scan sebelum diproses -->
+  <div id="confirmCard" class="card hidden">
+    <p><strong>Kode terbaca:</strong></p>
+    <p id="confirmCode" class="id-display" style="font-size: 18px; font-weight: bold;"></p>
+    <button class="btn-masuk" onclick="konfirmasiKode(true)">✅ Ya, benar</button>
+  </div>
+
+  <div id="formSudahAda" class="card hidden">
+    <p><strong>Barang ditemukan</strong></p>
+    <p id="infoSudahAda" class="id-display"></p>
+    <label>Jumlah</label>
+    <input type="number" id="jumlahSudahAda" min="1" value="1">
+    <button class="btn-masuk" onclick="submitTransaksi('Masuk')">➕ Barang Masuk</button>
+    <button class="btn-keluar" onclick="submitTransaksi('Keluar')">➖ Barang Keluar</button>
+  </div>
+
+  <div id="formBaru" class="card hidden">
+    <p><strong>Barang baru</strong> (ID belum terdaftar)</p>
+    <p id="infoBaru" class="id-display"></p>
+    <label>Nama Barang</label>
+    <input type="text" id="namaBaru" placeholder="Nama Barang">
+    <label>Kategori</label>
+    <input type="text" id="kategoriBaru" placeholder="Kategori">
+    <label>Jumlah</label>
+    <input type="number" id="jumlahBaru" min="1" value="0">
+    <button class="btn-masuk" onclick="submitBarangBaru()", type="submit">➕ Simpan sebagai Barang Masuk</button>
+    <button class="btn-keluar" onclick="peringatanBelumAda()">➖ Barang Keluar</button>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+  <script>
+    let html5QrCode;
+    let scannedId = null;
+
+    function initScanner() {
+      html5QrCode = new Html5Qrcode("reader", {
+        formatsToSupport: [
+          Html5QrcodeSupportedFormats.QR_CODE,
+          Html5QrcodeSupportedFormats.EAN_13,
+          Html5QrcodeSupportedFormats.EAN_8,
+          Html5QrcodeSupportedFormats.UPC_A,
+          Html5QrcodeSupportedFormats.UPC_E,
+          Html5QrcodeSupportedFormats.CODE_128,
+          Html5QrcodeSupportedFormats.CODE_39
+        ]
+      });
+
+      // Kotak persegi panjang, lebih cocok untuk barcode horizontal di kemasan produk
+      const config = {
+        fps: 10,
+        qrbox: { width: 280, height: 340 },
+        videoConstraints: {
+          facingMode: "environment",
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
+      };
+
+      html5QrCode.start(
+        { facingMode: "environment" },
+        config,
+        onScanSuccess,
+        () => {}
+      ).catch(err => {
+        showStatus("Gagal akses kamera: " + err, "error");
+      });
+    }
+
+    let pendingCode = null;
+
+    function onScanSuccess(decodedText) {
+      html5QrCode.pause();
+
+      // (kosong, terlalu pendek, atau cuma karakter aneh) munculkan peringatan
+      const bersih = decodedText.trim();
+      if (bersih.length < 4) {
+        showStatus("Hasil scan terlalu pendek/tidak valid, coba scan ulang.", "error");
+        setTimeout(restartScanner, 1500);
+        return;
+      }
+
+      pendingCode = bersih;
+      hideAllForms();
+      document.getElementById('confirmCode').innerText = bersih;
+      document.getElementById('confirmCard').classList.remove('hidden');
+      document.getElementById('statusBox').innerHTML = '';
+    }
+
+    async function konfirmasiKode(benar) {
+      document.getElementById('confirmCard').classList.add('hidden');
+      if (!benar) {
+        restartScanner();
+        return;
+      }
+
+      scannedId = pendingCode;
+      showStatus("Memeriksa ID: " + scannedId + " ...", "warning");
+
+      const res = await fetch('/api/cekBarang/' + encodeURIComponent(scannedId));
+      const result = await res.json();
+      handleCekBarang(result);
+    }
+
+    function handleCekBarang(result) {
+      hideAllForms();
+      if (result.ditemukan) {
+        document.getElementById('infoSudahAda').innerText =
+          'ID: ' + result.id + ' | ' + result.nama + ' (' + result.kategori + ') | Stock saat ini: ' + result.stock;
+        document.getElementById('formSudahAda').classList.remove('hidden');
+        showStatus("Data barang sudah ada di database.", "success");
+      } else {
+        document.getElementById('infoBaru').innerText = 'ID: ' + result.id;
+        document.getElementById('formBaru').classList.remove('hidden');
+        showStatus("Data barang belum ada. Silakan lengkapi data.", "warning");
+      }
+    }
+
+    async function submitTransaksi(jenis) {
+      const jumlah = document.getElementById('jumlahSudahAda').value;
+      showStatus("Menyimpan...", "warning");
+
+      const res = await fetch('/api/prosesTransaksi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: scannedId, jenis, jumlah })
+      });
+      handleHasil(await res.json());
+    }
+
+    async function submitBarangBaru() {
+      const nama = document.getElementById('namaBaru').value;
+      const kategori = document.getElementById('kategoriBaru').value;
+      const jumlah = document.getElementById('jumlahBaru').value;
+
+      if (!nama || !kategori) {
+        showStatus("Nama dan kategori wajib diisi.", "error");
+        return;
+      }
+
+      showStatus("Menyimpan...", "warning");
+      const res = await fetch('/api/tambahBarangBaru', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: scannedId, nama, kategori, jumlah})
+      });
+      handleHasil(await res.json());
+    }
+
+    function peringatanBelumAda() {
+      showStatus("⚠️ Peringatan: barang belum ada di database. Silakan catat sebagai Barang Masuk terlebih dahulu.", "error");
+    }
+
+    function handleHasil(result) {
+      if (result.sukses) {
+        showStatus("✅ " + result.pesan, "success");
+      } else {
+        showStatus("❌ " + result.pesan, "error");
+      }
+    }
+
+    function showStatus(msg, type) {
+      document.getElementById('statusBox').innerHTML = '<div class="status ' + type + '">' + msg + '</div>';
+    }
+
+    function hideAllForms() {
+      document.getElementById('formSudahAda').classList.add('hidden');
+      document.getElementById('formBaru').classList.add('hidden');
+    }
+
+    function restartScanner() {
+      hideAllForms();
+      document.getElementById('confirmCard').classList.add('hidden');
+      document.getElementById('statusBox').innerHTML = '';
+      scannedId = null;
+      pendingCode = null;
+      if (html5QrCode) {
+        html5QrCode.resume();
+      } else {
+        initScanner();
+      }
+    }
+
+    window.onload = initScanner;
+  </script>
+</body>
+</html>
