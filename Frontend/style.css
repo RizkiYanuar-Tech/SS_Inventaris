@@ -32,7 +32,7 @@ button {
 .btn-keluar { background: #dc2626; color: white; }
 .btn-secondary { background: #e5e7eb; color: #111; }
 
-input { width: 100%;
+input, select { width: 100%;
     padding: 10px;
     margin-top: 6px;
     margin-bottom: 10px;
@@ -40,6 +40,7 @@ input { width: 100%;
     border-radius: 6px;
     box-sizing: border-box;
     font-size: 15px;
+    display: block;
 }
 
 label { font-size: 13px; color: #555; font-weight: 600; }
@@ -60,4 +61,3 @@ label { font-size: 13px; color: #555; font-weight: 600; }
     color: #444;
     word-break: break-all;
 }
-  

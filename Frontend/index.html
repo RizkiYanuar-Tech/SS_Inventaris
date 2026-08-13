@@ -26,8 +26,13 @@
   <div id="formSudahAda" class="card hidden">
     <p><strong>Barang ditemukan</strong></p>
     <p id="infoSudahAda" class="id-display"></p>
-    <label>Jumlah</label>
+    
+    <label id="labelJumlahSudahAda">Jumlah</label>
     <input type="number" id="jumlahSudahAda" min="1" value="1">
+    
+    <label>Satuan Input</label>
+    <select id="satuanInputSudahAda"></select>
+    
     <button class="btn-masuk" onclick="submitTransaksi('Masuk')">➕ Barang Masuk</button>
     <button class="btn-keluar" onclick="submitTransaksi('Keluar')">➖ Barang Keluar</button>
   </div>
@@ -35,14 +40,37 @@
   <div id="formBaru" class="card hidden">
     <p><strong>Barang baru</strong> (ID belum terdaftar)</p>
     <p id="infoBaru" class="id-display"></p>
+    
     <label>Nama Barang</label>
-    <input type="text" id="namaBaru" placeholder="Nama Barang">
+    <input type="text" id="namaBaru" placeholder="Susu Greenfield">
+    
     <label>Kategori</label>
-    <input type="text" id="kategoriBaru" placeholder="Kategori">
-    <label>Jumlah</label>
-    <input type="number" id="jumlahBaru" min="1" value="0">
-    <button class="btn-masuk" onclick="submitBarangBaru()", type="submit">➕ Simpan sebagai Barang Masuk</button>
-    <button class="btn-keluar" onclick="peringatanBelumAda()">➖ Barang Keluar</button>
+    <input type="text" id="kategoriBaru" placeholder="Minuman">
+    
+    <label>Satuan Eceran (Satuan Terkecil)</label>
+    <input type="text" id="satuanEceranBaru" placeholder="Contoh: Pcs, Botol, Kg">
+
+    <label style="margin-top: 10px; display: block;">
+      <input type="checkbox" id="punyaGrosir" onchange="toggleGrosir()"> Barang ini punya Kemasan Grosir (Box/Karton)
+    </label>
+
+    <div id="grosirFields" class="hidden" style="background: #f0f0f0; padding: 10px; margin-top: 10px; border-radius: 5px;">
+      <label>Satuan Grosir</label>
+      <input type="text" id="satuanGrosirBaru" placeholder="Contoh: Box, Karton">
+      <label>Jumlah per Kemasan Grosir</label>
+      <input type="number" id="isiPerGrosirBaru" min="1" value="1" oninput="hitungOtomatis()">
+    </div>
+
+    <label style="margin-top: 10px;">Jumlah Kemasan / Box yang dibeli</label>
+    <input type="number" id="jumlahBeliBox" min="1" value="1" oninput="hitungOtomatis()">
+
+    <label>Total Stock Awal (Satuan Eceran)</label>
+    <input type="number" id="totalStock" readonly style="background-color: #e9ecef; cursor: not-allowed; font-weight: bold;">
+
+    <label>Batas Minimum Restock</label>
+    <input type="number" id="jumlahRestock" min="1" value="5">
+
+    <button class="btn-masuk" onclick="submitBarangBaru()" type="submit" style="margin-top: 15px;">➕ Simpan sebagai Barang Masuk</button>
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
@@ -86,6 +114,17 @@
 
     let pendingCode = null;
 
+    function hitungOtomatis(){
+      const jumlah_box = Number(document.getElementById("jumlahBeliBox").value || 1);
+      
+      // Ambil nilai per grosir | default 1
+      const punyaGrosir = document.getElementById('punyaGrosir').checked;
+      const jumlah_kemasan = punyaGrosir ? Number(document.getElementById("isiPerGrosirBaru").value || 1) : 1;
+
+      const total = jumlah_box * jumlah_kemasan;
+      document.getElementById("totalStock").value = total;
+    }
+
     function onScanSuccess(decodedText) {
       html5QrCode.pause();
 
@@ -119,28 +158,45 @@
       handleCekBarang(result);
     }
 
+    function toggleGrosir() {
+      const checked = document.getElementById('punyaGrosir').checked;
+      document.getElementById('grosirFields').classList.toggle('hidden', !checked);
+    }
+
     function handleCekBarang(result) {
       hideAllForms();
       if (result.ditemukan) {
         document.getElementById('infoSudahAda').innerText =
-          'ID: ' + result.id + ' | ' + result.nama + ' (' + result.kategori + ') | Stock saat ini: ' + result.stock;
+          'ID: ' + result.id + ' | ' + result.nama + ' (' + result.kategori + ') | Stock saat ini: ' + result.stock + ' ' + result.satuanEceran;
+
+        const selectSatuan = document.getElementById('satuanInputSudahAda');
+        selectSatuan.innerHTML = '<option value="' + result.satuanEceran + '">' + result.satuanEceran + '</option>';
+        if (result.satuanGrosir && result.isiPerGrosir) {
+          selectSatuan.innerHTML += '<option value="' + result.satuanGrosir + '">' +
+            result.satuanGrosir + ' (1 ' + result.satuanGrosir + ' = ' + result.isiPerGrosir + ' ' + result.satuanEceran + ')</option>';
+        }
+
         document.getElementById('formSudahAda').classList.remove('hidden');
         showStatus("Data barang sudah ada di database.", "success");
       } else {
         document.getElementById('infoBaru').innerText = 'ID: ' + result.id;
         document.getElementById('formBaru').classList.remove('hidden');
+        
+        hitungOtomatis(); 
+        
         showStatus("Data barang belum ada. Silakan lengkapi data.", "warning");
       }
     }
 
     async function submitTransaksi(jenis) {
       const jumlah = document.getElementById('jumlahSudahAda').value;
+      const satuanInput = document.getElementById('satuanInputSudahAda').value;
       showStatus("Menyimpan...", "warning");
 
       const res = await fetch('/api/prosesTransaksi', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: scannedId, jenis, jumlah })
+        body: JSON.stringify({ id: scannedId, jenis, jumlah, satuanInput })
       });
       handleHasil(await res.json());
     }
@@ -148,10 +204,23 @@
     async function submitBarangBaru() {
       const nama = document.getElementById('namaBaru').value;
       const kategori = document.getElementById('kategoriBaru').value;
-      const jumlah = document.getElementById('jumlahBaru').value;
+      
+      // Ambil dari totalStock
+      const jumlah = document.getElementById('totalStock').value; 
+      
+      const restock = document.getElementById('jumlahRestock').value;
+      const satuanEceran = document.getElementById('satuanEceranBaru').value;
+      const punyaGrosir = document.getElementById('punyaGrosir').checked;
+      const satuanGrosir = punyaGrosir ? document.getElementById('satuanGrosirBaru').value : '';
+      const isiPerGrosir = punyaGrosir ? document.getElementById('isiPerGrosirBaru').value : '';
 
       if (!nama || !kategori) {
         showStatus("Nama dan kategori wajib diisi.", "error");
+        return;
+      }
+
+      if (punyaGrosir && (!satuanGrosir || !isiPerGrosir)) {
+        showStatus("Lengkapi nama Satuan Grosir dan isi per Satuan Grosir, atau uncheck 'Punya Satuan Grosir'.", "error");
         return;
       }
 
@@ -159,7 +228,7 @@
       const res = await fetch('/api/tambahBarangBaru', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: scannedId, nama, kategori, jumlah})
+        body: JSON.stringify({ id: scannedId, nama, kategori, jumlah, restock, satuanEceran, satuanGrosir, isiPerGrosir })
       });
       handleHasil(await res.json());
     }
