@@ -44,7 +44,15 @@ async function initSheets() {
 
 async function catatTransaksi(id, nama, jenis, jumlah, restock) {
   await sheetTransaksi.addRow({
-    Timestamp: new Date().toISOString(),
+    Timestamp: new Date().toLocaleString('id-ID', {
+      timeZone: 'Asia/Jakarta',
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    }),
     "ID Barang": id,
     "Nama Barang": nama,
     Jenis: jenis,
@@ -75,7 +83,7 @@ async function RandomSamplingChecking(){
     const rows = await sheetBarang.getRows();
     if (rows.length === 0) return;
 
-    const jumlahSampel = Math.max(1, Math.ceil(rows.length * sampling_check));
+    const jumlahSampel = Math.min(3, Math.max(1, Math.ceil(rows.length * sampling_check)));
     const acak = [...rows].sort(() => Math.random() - 0.5).slice(0, jumlahSampel);
     
     let pesan = "*CHECK PRODUK*\n\n Check Produk Berikut, apakah jumlah stock sesuai?";
@@ -186,6 +194,13 @@ app.post('/api/tambahBarangBaru', async (req, res) => {
       });
     }
 
+    if (!satuanGrosir || !isiPerGrosir) {
+      return res.status(400).json({
+        sukses: false,
+        pesan: 'Nama Kemasan dan Isi per Kemasan wajib diisi untuk setiap barang.'
+      });
+    }
+
     await sheetBarang.addRow({
       'ID Barang': id,
       'Nama Barang': nama,
@@ -193,8 +208,8 @@ app.post('/api/tambahBarangBaru', async (req, res) => {
       'Jumlah Stock': Number(jumlah),
       'Batas Restock': Number(restock) || 5,
       'Satuan Eceran': satuanEceran || 'Pcs',
-      'Satuan Grosir': satuanGrosir || '',
-      'Isi per Grosir': isiPerGrosir ? Number(isiPerGrosir) : ''
+      'Satuan Grosir': satuanGrosir,
+      'Isi per Grosir': Number(isiPerGrosir)
     });
 
     await catatTransaksi(id, nama, 'Masuk', jumlah, restock);
@@ -271,7 +286,6 @@ app.post('/api/prosesTransaksi', async (req, res) => {
   }
 });
 
-// NOTE PROTECTION
 //Kirim pesan WA
 app.post('/api/sendMessage', async (req, res) => {
   try{
