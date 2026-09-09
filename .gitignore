@@ -1,2 +1,3 @@
 ss-inventory-bot-key*
 node_modules/
+.env
