@@ -41,6 +41,20 @@ export async function tambahBarangBaru(payload) {
     }
 }
 
+export async function ubahBarang(id, payload) {
+    const res = await fetch(`${BASE_URL}/barang/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    });
+    return handleRes(res, 'Gagal mengubah barang');
+}
+
+export async function hapusBarang(id) {
+    const res = await fetch(`${BASE_URL}/barang/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    return handleRes(res, 'Gagal menghapus barang');
+}
+
 export async function prosesTransaksi(payload){
     try{
         const res = await fetch(`${BASE_URL}/prosesTransaksi`,{
@@ -78,11 +92,11 @@ export async function fetchPengiriman() {
     return handleRes(res, 'Gagal mengambil data pengiriman');
 }
 
-export async function tandaiDikirim(idKirim, pindaian = []) {
+export async function tandaiDikirim(idKirim, pindaian = [], fotoKirim = null) {
     const res = await fetch(`${BASE_URL}/pengiriman/${encodeURIComponent(idKirim)}/kirim`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ pindaian })
+        body: JSON.stringify({ pindaian, fotoKirim })
     });
     return handleRes(res, 'Gagal menandai dikirim');
 }
@@ -96,8 +110,8 @@ export async function batalkanPengiriman(idKirim, alasan) {
     return handleRes(res, 'Gagal membatalkan pengiriman');
 }
 
-export async function lihatPesananOutlet(token) {
-    const res = await fetch(`${BASE_URL}/pesan/${encodeURIComponent(token)}`);
+export async function lihatPesananOutlet(token, ringan = false) {
+    const res = await fetch(`${BASE_URL}/pesan/${encodeURIComponent(token)}${ringan ? '?ringan=1' : ''}`);
     return handleRes(res, 'Link tidak valid');
 }
 

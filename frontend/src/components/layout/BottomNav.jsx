@@ -1,7 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { Navbar, Container, Nav, Badge } from 'react-bootstrap';
-import { Home, History, Package, Scan, ClipboardList } from 'lucide-react';
+import { Home, History, Package, PackagePlus, ClipboardList } from 'lucide-react';
 import { fetchPesanan } from '../../api/client';
 
 const navItems = [
@@ -9,7 +9,7 @@ const navItems = [
     {to: '/inventory', label: "Inventory", icon: Package},
     {to: '/pesanan', label: "Pesanan", icon: ClipboardList},
     {to: '/history', label: "History", icon: History},
-    {to: '/scan', label: "Scan ID", icon: Scan}
+    {to: '/input', label: "Input", icon: PackagePlus}
 ]
 
 export default function BottomNav() {

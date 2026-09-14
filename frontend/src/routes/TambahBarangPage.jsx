@@ -17,23 +17,7 @@ export default function TambahBarangPage(){
     function closeModal(){
         const sukses = modal.sukses;
         setModal(m => ({ ...m, show: false }));
-        if (sukses) navigate('/scan');
-    }
-
-    if (!idUrl){
-        return(
-            <Container
-                className='py-5 text-center'
-                style={{ maxWidth: '480px'}}
-            >
-                <p className='mb-4'>
-                    ID Barang tidak ditemukan, Silakan lakukan scan terlebih dahulu.
-                </p>
-                <Button variant='secondary' onClick={() => navigate('/scan')}>
-                    Kembali ke Halaman Scan Barcode
-                </Button>
-            </Container>
-        );
+        if (sukses) navigate('/input');
     }
 
     async function handleSubmitBarangBaru(payload){
@@ -70,11 +54,11 @@ export default function TambahBarangPage(){
 
             <ResultModal show={modal.show} sukses={modal.sukses} pesan={modal.pesan} onClose={closeModal} />
 
-            <FormBarangBaru id={idUrl} onSubmit={handleSubmitBarangBaru} />
+            <FormBarangBaru id={idUrl || ''} onSubmit={handleSubmitBarangBaru} />
             <Button
                 variant='outline-secondary'
                 className='w-100 mt-2'
-                onClick={() => navigate('/scan')}
+                onClick={() => navigate('/input')}
             >
                 Batal & Kembali
             </Button>

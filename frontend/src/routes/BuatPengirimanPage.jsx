@@ -12,7 +12,7 @@ export default function BuatPengirimanPage() {
     const [barang, setBarang] = useState([]);
     const [search, setSearch] = useState('');
     const [outlet, setOutlet] = useState('');
-    const [keranjang, setKeranjang] = useState({}); // {id: {...brg, jumlah}}
+    const [keranjang, setKeranjang] = useState({}); // {bi: {...brg, jumlah}}, bi = index di barang (ID bisa kembar '-')
     const [modal, setModal] = useState({ show: false, sukses: false, pesan: '' });
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState(null);
@@ -23,21 +23,26 @@ export default function BuatPengirimanPage() {
 
     const hasil = useMemo(() => {
         const q = search.toLowerCase();
-        return barang.filter(b => !q || b.nama.toLowerCase().includes(q) || String(b.id).includes(search));
+        return barang.map((b, bi) => ({ b, bi }))
+            .filter(({ b }) => !q || b.nama.toLowerCase().includes(q) || String(b.id).includes(search));
     }, [barang, search]);
 
-    function setQty(b, nilai) {
+    function setQty(b, bi, nilai) {
         const q = Math.floor(Number(nilai));
         setKeranjang(prev => {
             if (!q || q <= 0) {
-                const { [b.id]: _, ...rest } = prev;
+                const { [bi]: _, ...rest } = prev;
                 return rest;
             }
-            return { ...prev, [b.id]: { ...b, jumlah: Math.min(q, Number(b.stock)) } };
+            return { ...prev, [bi]: { ...b, jumlah: q, satuan: prev[bi]?.satuan || b.satuanEceran } };
         });
     }
 
-    const isiKeranjang = Object.values(keranjang);
+    function setSatuan(bi, satuan) {
+        setKeranjang(prev => prev[bi] ? { ...prev, [bi]: { ...prev[bi], satuan } } : prev);
+    }
+
+    const isiKeranjang = Object.entries(keranjang).map(([bi, k]) => ({ ...k, bi: Number(bi) }));
 
     async function handleSubmit() {
         if (!outlet.trim()) {
@@ -52,7 +57,7 @@ export default function BuatPengirimanPage() {
         try {
             const res = await buatPengiriman({
                 outlet: outlet.trim(),
-                items: isiKeranjang.map(k => ({ id: k.id, jumlah: k.jumlah }))
+                items: isiKeranjang.map(k => ({ id: k.id, jumlah: k.jumlah, satuan: k.satuan || k.satuanEceran }))
             });
             setModal({ show: true, sukses: true, pesan: `${res.pesan} ID: ${res.idKirim}` });
             setKeranjang({});
@@ -85,18 +90,18 @@ export default function BuatPengirimanPage() {
                 placeholder='Cari barang...' className='mb-2'
             />
             <ListGroup className='mb-3' style={{ maxHeight: '260px', overflowY: 'auto' }}>
-                {hasil.slice(0, 30).map(b => (
-                    <ListGroup.Item key={b.id} className='d-flex justify-content-between align-items-center py-2'>
+                {hasil.slice(0, 30).map(({ b, bi }) => (
+                    <ListGroup.Item key={`${b.id}#${bi}`} className='d-flex justify-content-between align-items-center py-2'>
                         <div>
                             <div className='fw-medium small'>{b.nama}</div>
                             <div className='text-muted' style={{ fontSize: '11px' }}>Stock: {b.stock} {b.satuanEceran}</div>
                         </div>
                         <div className='d-flex align-items-center gap-1'>
-                            <Button size='sm' variant='outline-secondary' onClick={() => setQty(b, (keranjang[b.id]?.jumlah || 0) - 1)}>-</Button>
+                            <Button size='sm' variant='outline-secondary' onClick={() => setQty(b, bi, (keranjang[bi]?.jumlah || 0) - 1)}>-</Button>
                             <Form.Control type='number' inputMode='numeric' min='0' size='sm' style={{ width: '90px' }}
-                                placeholder='0' value={keranjang[b.id]?.jumlah || ''}
-                                onChange={e => setQty(b, e.target.value)} />
-                            <Button size='sm' variant='outline-primary' onClick={() => setQty(b, (keranjang[b.id]?.jumlah || 0) + 1)}>+</Button>
+                                placeholder='0' value={keranjang[bi]?.jumlah || ''}
+                                onChange={e => setQty(b, bi, e.target.value)} />
+                            <Button size='sm' variant='outline-primary' onClick={() => setQty(b, bi, (keranjang[bi]?.jumlah || 0) + 1)}>+</Button>
                         </div>
                     </ListGroup.Item>
                 ))}
@@ -107,9 +112,18 @@ export default function BuatPengirimanPage() {
                     <Card.Body>
                         <p className='fw-bold mb-2 small'>Keranjang ({isiKeranjang.length} item)</p>
                         {isiKeranjang.map(k => (
-                            <div key={k.id} className='d-flex justify-content-between small mb-1'>
+                            <div key={`${k.id}#${k.bi}`} className='d-flex justify-content-between align-items-center small mb-1 gap-2'>
                                 <span>{k.nama}</span>
-                                <Badge bg='primary'>{k.jumlah} {k.satuanEceran}</Badge>
+                                <span className='d-flex align-items-center gap-1'>
+                                    <Badge bg='primary'>{k.jumlah}</Badge>
+                                    <Form.Select size='sm' style={{ width: '110px' }} value={k.satuan || k.satuanEceran}
+                                        onChange={e => setSatuan(k.bi, e.target.value)}>
+                                        <option value={k.satuanEceran}>{k.satuanEceran}</option>
+                                        {k.satuanGrosir && k.satuanGrosir.toLowerCase() !== String(k.satuanEceran).toLowerCase() && (
+                                            <option value={k.satuanGrosir}>{k.satuanGrosir}</option>
+                                        )}
+                                    </Form.Select>
+                                </span>
                             </div>
                         ))}
                     </Card.Body>

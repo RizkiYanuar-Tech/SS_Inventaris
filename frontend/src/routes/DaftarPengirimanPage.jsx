@@ -19,22 +19,22 @@ function BadgeStatus({ status }) {
     return <Badge bg={WARNA[status] || 'dark'}>{status}</Badge>;
 }
 
-// Form putus per item untuk 1 kartu BARU
+// Form putus per item untuk 1 kartu BARU.
+// State keyed by POSISI (index), bukan id — ID bisa kembar ('-', duplikat migrasi).
 function PutusForm({ pesanan, onSelesai }) {
-    const [mode, setMode] = useState({}); // {itemId: 'PENUHI'|'TOLAK'}
-    const [ket, setKet] = useState({}); // {itemId: keterangan}
-    const [alasanUmum, setAlasanUmum] = useState('');
+    const [mode, setMode] = useState({}); // {index: 'PENUHI'|'TOLAK'}
+    const [ket, setKet] = useState({}); // {index: keterangan}
     const [busy, setBusy] = useState(false);
 
     async function submit() {
-        const items = (pesanan.items || []).map(it => ({
+        const items = (pesanan.items || []).map((it, i) => ({
             id: it.id,
-            keputusan: mode[it.id] || 'PENUHI',
-            keterangan: ket[it.id] || '',
+            keputusan: mode[i] || 'PENUHI',
+            keterangan: ket[i] || '',
         }));
         setBusy(true);
         try {
-            const res = await putusPesanan(pesanan.idPesan, { items, alasanUmum: alasanUmum.trim() });
+            const res = await putusPesanan(pesanan.idPesan, { items });
             onSelesai(true, res.idKirim ? `${res.pesan} Kirim: ${res.idKirim}` : res.pesan);
         } catch (e) {
             onSelesai(false, e.message);
@@ -45,25 +45,23 @@ function PutusForm({ pesanan, onSelesai }) {
 
     return (
         <div className='mt-2 border-top pt-2'>
-            {(pesanan.items || []).map(it => (
-                <div key={it.id} className='mb-2'>
+            {(pesanan.items || []).map((it, i) => (
+                <div key={`${it.id}#${i}`} className='mb-2'>
                     <div className='d-flex justify-content-between align-items-center'>
                         <span className='small'>{it.nama} <strong>x{it.qtyPesan}</strong></span>
                         <div className='d-flex gap-1'>
-                            <Button size='sm' variant={(mode[it.id] || 'PENUHI') === 'PENUHI' ? 'success' : 'outline-success'}
-                                onClick={() => setMode(m => ({ ...m, [it.id]: 'PENUHI' }))}>Penuhi</Button>
-                            <Button size='sm' variant={mode[it.id] === 'TOLAK' ? 'danger' : 'outline-danger'}
-                                onClick={() => setMode(m => ({ ...m, [it.id]: 'TOLAK' }))}>Tolak</Button>
+                            <Button size='sm' variant={(mode[i] || 'PENUHI') === 'PENUHI' ? 'success' : 'outline-success'}
+                                onClick={() => setMode(m => ({ ...m, [i]: 'PENUHI' }))}>Penuhi</Button>
+                            <Button size='sm' variant={mode[i] === 'TOLAK' ? 'danger' : 'outline-danger'}
+                                onClick={() => setMode(m => ({ ...m, [i]: 'TOLAK' }))}>Tolak</Button>
                         </div>
                     </div>
-                    {mode[it.id] === 'TOLAK' && (
+                    {mode[i] === 'TOLAK' && (
                         <Form.Control size='sm' className='mt-1' placeholder='Keterangan wajib (cth: habis)'
-                            value={ket[it.id] || ''} onChange={e => setKet(k => ({ ...k, [it.id]: e.target.value }))} />
+                            value={ket[i] || ''} onChange={e => setKet(k => ({ ...k, [i]: e.target.value }))} />
                     )}
                 </div>
             ))}
-            <Form.Control size='sm' className='mb-2' placeholder='Alasan umum (wajib bila semua ditolak)'
-                value={alasanUmum} onChange={e => setAlasanUmum(e.target.value)} />
             <Button size='sm' variant='primary' className='w-100' disabled={busy} onClick={submit}>
                 {busy ? '...' : 'Putuskan'}
             </Button>
@@ -76,16 +74,18 @@ function BuatForm({ outlets, onSelesai }) {
     const [token, setToken] = useState('');
     const [barang, setBarang] = useState([]);
     const [search, setSearch] = useState('');
-    const [keranjang, setKeranjang] = useState({});
+    const [keranjang, setKeranjang] = useState({}); // {gi: qty}, gi = index di barang (ID bisa kembar '-')
     const [nama, setNama] = useState('');
     const [busy, setBusy] = useState(false);
 
     useEffect(() => { fetchBarang().then(setBarang).catch(() => {}); }, []);
     const hasil = useMemo(() => {
         const q = search.toLowerCase();
-        return barang.filter(b => !q || b.nama.toLowerCase().includes(q) || String(b.id).includes(search)).slice(0, 30);
+        return barang.map((b, gi) => ({ b, gi }))
+            .filter(({ b }) => !q || b.nama.toLowerCase().includes(q) || String(b.id).includes(search)).slice(0, 30);
     }, [barang, search]);
-    const isi = Object.entries(keranjang).filter(([, q]) => Number(q) > 0).map(([id, qty]) => ({ id, qty: Number(qty) }));
+    const isi = Object.entries(keranjang).filter(([, q]) => Number(q) > 0)
+        .map(([gi, qty]) => ({ gi: Number(gi), id: barang[Number(gi)]?.id, qty: Number(qty) }));
 
     async function submit() {
         if (!token) return onSelesai(false, 'Pilih outlet dulu.');
@@ -93,7 +93,7 @@ function BuatForm({ outlets, onSelesai }) {
         if (isi.length === 0) return onSelesai(false, 'Keranjang masih kosong.');
         setBusy(true);
         try {
-            const res = await buatPesananOutlet(token, { namaPemesan: nama.trim(), items: isi });
+            const res = await buatPesananOutlet(token, { namaPemesan: nama.trim(), items: isi.map(({ id, qty }) => ({ id, qty })) });
             setKeranjang({}); setNama('');
             onSelesai(true, res.pesan);
         } catch (e) {
@@ -110,19 +110,19 @@ function BuatForm({ outlets, onSelesai }) {
                 {(outlets || []).map(o => <option key={o.slug} value={o.token}>{o.outlet}</option>)}
             </Form.Select>
             <Form.Control size='sm' value={search} onChange={e => setSearch(e.target.value)} placeholder='Cari barang...' className='mb-2' />
-            {hasil.map(b => (
-                <div key={b.id} className='d-flex justify-content-between align-items-center small border-bottom py-1'>
+            {hasil.map(({ b, gi }) => (
+                <div key={`${b.id}#${gi}`} className='d-flex justify-content-between align-items-center small border-bottom py-1'>
                     <span>{b.nama} <span className='text-muted'>{b.varian} • {b.satuanEceran}</span></span>
                     <Form.Control type='number' inputMode='numeric' min='0' size='sm' style={{ width: '100px' }}
-                        value={keranjang[b.id] || ''} placeholder='0'
-                        onChange={e => setKeranjang(k => ({ ...k, [b.id]: e.target.value }))} />
+                        value={keranjang[gi] || ''} placeholder='0'
+                        onChange={e => setKeranjang(k => ({ ...k, [gi]: e.target.value }))} />
                 </div>
             ))}
             {isi.length > 0 && (
                 <div className='small my-2 p-2 bg-light rounded'>
                     {isi.map(it => {
-                        const b = barang.find(x => x.id === it.id);
-                        return <div key={it.id} className='d-flex justify-content-between'><span>{b?.nama || it.id}</span><strong>x{it.qty}</strong></div>;
+                        const b = barang[it.gi];
+                        return <div key={`${it.id}#${it.gi}`} className='d-flex justify-content-between'><span>{b?.nama || it.id}</span><strong>x{it.qty}</strong></div>;
                     })}
                 </div>
             )}
@@ -146,19 +146,31 @@ export default function DaftarPengirimanPage() {
     const [alasan, setAlasan] = useState('');
     const [lacakId, setLacakId] = useState('');
     const [busy, setBusy] = useState(false);
+    const [tab, setTab] = useState('daftar');
     const [fStatus, setFStatus] = useState('Semua');
     const [fCari, setFCari] = useState('');
     const [lStatus, setLStatus] = useState('Semua');
     const [lOutlet, setLOutlet] = useState('Semua');
     const [lCari, setLCari] = useState('');
+    const [batas, setBatas] = useState(20);
 
-    async function muat() {
+    // load pesanan baru
+    async function muat(senyap=false) {
         try {
             const [p, k, o] = await Promise.all([fetchPesanan(), fetchPengiriman(), fetchOutlet()]);
             setPesanan(p); setKiriman(k); setOutlets(o); setError(null);
-        } catch (e) { setError(e.message); }
+        } catch (e) { if (!senyap) setError(e.message); }
     }
     useEffect(() => { muat(); }, []);
+
+    useEffect(() => {
+        if (tab !== 'daftar') return;
+        const t = setInterval(() => {
+            if (document.hidden || busy || aksi) return;
+            muat(true);
+        }, 30000);
+        return () => clearInterval(t);
+    }, [tab, busy, aksi]);
 
     const kirimByPesan = useMemo(() => {
         const m = {};
@@ -202,7 +214,7 @@ export default function DaftarPengirimanPage() {
     }
 
     async function resetLink(slug, nama) {
-        if (!window.confirm(`Reset link ${nama}? Link lama langsung mati.`)) return;
+        if (!window.confirm(`Reset link ${nama}? Link lama akan mati.`)) return;
         try {
             const res = await resetLinkOutlet(slug);
             muat();
@@ -212,18 +224,24 @@ export default function DaftarPengirimanPage() {
         }
     }
 
-    const lacak = kiriman.find(i => i.idKirim === lacakId);
+    // ponytail: slice di frontend, pindah ke limit query bila kiriman > ratusan
+    const lacakList = useMemo(() => kiriman.filter(k =>
+        (lOutlet === 'Semua' || k.outlet === lOutlet) &&
+        (lStatus === 'Semua' || k.status === lStatus) &&
+        (!lCari.trim() || `${k.idKirim} ${k.outlet} ${k.ringkasan || ''}`.toLowerCase().includes(lCari.trim().toLowerCase()))
+    ), [kiriman, lOutlet, lStatus, lCari]);
+    const tampil = lacakList.slice(0, batas);
 
     if (error) return <p className='text-center py-5 text-danger'>{error}</p>;
 
     return (
-        <Container className='py-4'>
+        <Container className='py-4 hub-lebar'>
             <div className='d-flex justify-content-between align-items-center mb-3'>
                 <h2 className='fw-bold mb-0'>Pesanan & Kirim</h2>
                 <Button size='sm' variant='success' onClick={() => navigate('/kirim')}>+ Kirim</Button>
             </div>
 
-            <Tabs defaultActiveKey='daftar' className='mb-3'>
+            <Tabs activeKey={tab} onSelect={setTab} className='mb-3'>
                 <Tab eventKey='daftar' title='Daftar'>
                     <Card className='shadow-sm border-0 mb-3'>
                         <Card.Body className='py-2'>
@@ -241,7 +259,7 @@ export default function DaftarPengirimanPage() {
                         </Card.Body>
                     </Card>
 
-                    <div className='d-flex gap-2 mb-2'>
+                    <div className='d-flex gap-2 mb-2 flex-wrap'>
                         <Form.Select size='sm' value={fStatus} onChange={e => setFStatus(e.target.value)} style={{ maxWidth: '180px' }}>
                             {['Semua', 'BARU', 'DISETUJUI', 'DISETUJUI SEBAGIAN', 'DITOLAK', 'SIAP KIRIM', 'DIKIRIM', 'DITERIMA', 'DITERIMA SEBAGIAN'].map(s =>
                                 <option key={s} value={s}>{s}</option>)}
@@ -250,6 +268,7 @@ export default function DaftarPengirimanPage() {
                     </div>
 
                     {daftar.length === 0 && <p className='text-center text-muted py-4'>Belum ada pesanan.</p>}
+                    <div className='hub-grid'>
                     {daftar.map(p => {
                         const k = kirimByPesan[p.idPesan];
                         return (
@@ -263,16 +282,13 @@ export default function DaftarPengirimanPage() {
                                         {p.tanggalPesan} • Batch {p.batchMasuk} • Kirim {p.rencanaKirim}
                                     </div>
                                     <div className='text-muted my-1' style={{ fontSize: '11px' }}>{p.ringkasan}</div>
-                                    {p.status === 'DITOLAK' && p.alasanTolak && (
-                                        <div className='small text-danger'>Alasan: {p.alasanTolak}</div>
-                                    )}
                                     {p.status === 'BARU' && <PutusForm pesanan={p} onSelesai={selesaiPutus} />}
                                     {k && (k.status === 'SIAP KIRIM' || k.status === 'DIKIRIM') && (
-                                        <div className='d-flex gap-2 mt-2 align-items-center'>
+                                        <div className='d-flex gap-2 mt-2 align-items-center flex-wrap'>
                                             <BadgeStatus status={k.status} />
                                             {k.status === 'SIAP KIRIM' && (
-                                                <Button size='sm' variant='primary' onClick={() => navigate('/scan', { state: { mode: 'verifikasi', idKirim: k.idKirim } })}>
-                                                    Pindai & Tandai
+                                                <Button size='sm' variant='primary' onClick={() => navigate('/input', { state: { mode: 'verifikasi', idKirim: k.idKirim } })}>
+                                                    Verifikasi & Tandai
                                                 </Button>
                                             )}
                                             {k.status === 'DIKIRIM' && (
@@ -280,7 +296,13 @@ export default function DaftarPengirimanPage() {
                                                     Batalkan
                                                 </Button>
                                             )}
-                                            <Button size='sm' variant='outline-secondary' onClick={() => setLacakId(k.idKirim)}>
+                                            {k.status === 'DIKIRIM' && k.token && (
+                                                <Button size='sm' variant='outline-primary'
+                                                    onClick={() => salinTeks(`${window.location.origin}/terima/${k.token}`, 'Link surat jalan disalin.')}>
+                                                    Salin Link
+                                                </Button>
+                                            )}
+                                            <Button size='sm' variant='outline-secondary' onClick={() => { setLacakId(k.idKirim); setTab('lacak'); }}>
                                                 Lacak
                                             </Button>
                                         </div>
@@ -289,56 +311,97 @@ export default function DaftarPengirimanPage() {
                             </Card>
                         );
                     })}
+                    </div>
                 </Tab>
                 <Tab eventKey='buat' title='Buat'>
                     <BuatForm outlets={outlets} onSelesai={(s, pesan) => { setModal({ show: true, sukses: s, pesan }); if (s) muat(); }} />
                 </Tab>
                 <Tab eventKey='lacak' title='Lacak'>
-                    <div className='d-flex gap-2 mb-2'>
-                        <Form.Select size='sm' value={lOutlet} onChange={e => { setLOutlet(e.target.value); setLacakId(''); }} style={{ maxWidth: '150px' }}>
+                    <div className='d-flex gap-2 mb-2 flex-wrap'>
+                        <Form.Select size='sm' value={lOutlet} onChange={e => { setLOutlet(e.target.value); setBatas(20); }} style={{ maxWidth: '150px' }}>
                             <option value='Semua'>Semua outlet</option>
                             {(outlets || []).map(o => <option key={o.slug} value={o.outlet}>{o.outlet}</option>)}
                         </Form.Select>
-                        <Form.Select size='sm' value={lStatus} onChange={e => { setLStatus(e.target.value); setLacakId(''); }} style={{ maxWidth: '170px' }}>
+                        <Form.Select size='sm' value={lStatus} onChange={e => { setLStatus(e.target.value); setBatas(20); }} style={{ maxWidth: '170px' }}>
                             {['Semua', 'SIAP KIRIM', 'DIKIRIM', 'DITERIMA', 'DITERIMA SEBAGIAN'].map(s =>
                                 <option key={s} value={s}>{s === 'Semua' ? 'Semua status' : s}</option>)}
                         </Form.Select>
-                        <Form.Control size='sm' value={lCari} onChange={e => { setLCari(e.target.value); setLacakId(''); }} placeholder='Cari ID...' />
+                        <Form.Control size='sm' value={lCari} onChange={e => { setLCari(e.target.value); setBatas(20); }} placeholder='Cari ID...' />
                     </div>
-                    <Form.Select value={lacakId} onChange={e => setLacakId(e.target.value)} className='mb-1'>
-                        <option value=''>— Pilih ID Kirim —</option>
-                        {kiriman
-                            .filter(k => (lOutlet === 'Semua' || k.outlet === lOutlet) &&
-                                (lStatus === 'Semua' || k.status === lStatus) &&
-                                (!lCari.trim() || `${k.idKirim} ${k.outlet} ${k.ringkasan || ''}`.toLowerCase().includes(lCari.trim().toLowerCase())))
-                            .map(k => <option key={k.idKirim} value={k.idKirim}>{k.idKirim} • {k.outlet} • {k.status}</option>)}
-                    </Form.Select>
-                    {lacak && (
-                        <Card className='shadow-sm border-0'>
-                            <Card.Body>
-                                <div className='d-flex justify-content-between align-items-center mb-2'>
-                                    <strong>{lacak.idKirim}</strong>
-                                    <BadgeStatus status={lacak.status} />
-                                </div>
-                                <div className='small text-muted mb-2'>
-                                    Outlet: {lacak.outlet}<br />
-                                    Dibuat: {lacak.tglBuat || '-'}<br />
-                                    Dikirim: {lacak.tglKirim || '-'}<br />
-                                    Diterima: {lacak.tglTerima ? `${lacak.tglTerima} oleh ${lacak.namaPenerima}` : '-'}
-                                </div>
-                                <div className='small mb-1'>{lacak.ringkasan}</div>
-                                {lacak.alasan && <div className='small text-muted mb-2'>Alasan: {lacak.alasan}</div>}
-                                {lacak.items.map(it => (
-                                    <div key={it.id} className='d-flex justify-content-between small border-top py-1'>
-                                        <span>{it.nama} <span className='text-muted'>({it.jumlahKirim}{it.jumlahTerima != null && `→${it.jumlahTerima}`})</span>
-                                            {it.keterangan && <em className='d-block text-muted'>{it.keterangan}</em>}
-                                        </span>
-                                        {it.jumlahTerima != null && <Badge bg={it.ceklis ? 'success' : 'warning'}>{it.ceklis ? 'Sesuai' : 'Sebagian'}</Badge>}
+                    {lacakList.length === 0 && <p className='text-center text-muted py-4'>Belum ada pengiriman.</p>}
+                    <div className='hub-grid'>
+                    {tampil.map(k => {
+                        const buka = k.idKirim === lacakId;
+                        return (
+                            <Card key={k.idKirim} className='shadow-sm border-0 mb-2'>
+                                <Card.Body className='py-2' onClick={() => setLacakId(buka ? '' : k.idKirim)} style={{ cursor: 'pointer' }}>
+                                    <div className='d-flex justify-content-between align-items-center'>
+                                        <strong className='small'>{k.idKirim} • {k.outlet}</strong>
+                                        <BadgeStatus status={k.status} />
                                     </div>
-                                ))}
-                                {lacak.riwayat && <pre className='mt-2 p-2 bg-light small rounded' style={{ fontSize: '11px', whiteSpace: 'pre-wrap' }}>{lacak.riwayat}</pre>}
-                            </Card.Body>
-                        </Card>
+                                    <div className='text-muted' style={{ fontSize: '11px' }}>{k.tglKirim || k.tglBuat || ''} • {k.ringkasan}</div>
+                                    {buka && (
+                                        <div onClick={e => e.stopPropagation()}>
+                                            <div className='small text-muted mt-2'>
+                                                Dibuat: {k.tglBuat || '-'}<br />
+                                                Dikirim: {k.tglKirim || '-'}<br />
+                                                Diterima: {k.tglTerima ? `${k.tglTerima} oleh ${k.namaPenerima}` : '-'}
+                                            </div>
+                                            {k.alasan && <div className='small text-muted mb-2'>Alasan: {k.alasan}</div>}
+                                            {(k.fotoKirim || k.fotoTerima) && (
+                                                <div className='d-flex gap-2 my-2'>
+                                                    {k.fotoKirim && <a href={k.fotoKirim} target='_blank' rel='noreferrer' className='flex-fill'>
+                                                        <img src={k.fotoKirim} alt='Paket dari gudang' className='w-100 rounded' />
+                                                        <div className='text-muted text-center' style={{ fontSize: '11px' }}>Kirim</div></a>}
+                                                    {k.fotoTerima && <a href={k.fotoTerima} target='_blank' rel='noreferrer' className='flex-fill'>
+                                                        <img src={k.fotoTerima} alt='Diterima outlet' className='w-100 rounded' />
+                                                        <div className='text-muted text-center' style={{ fontSize: '11px' }}>Terima</div></a>}
+                                                </div>
+                                            )}
+                                            {(k.items || []).map((it, idx) => {
+                                                const sudahTerima = it.jumlahTerima != null;
+                                                const selisih = sudahTerima ? Number(it.jumlahKirim) - Number(it.jumlahTerima) : 0;
+                                                return (
+                                                    <div key={`${it.id}#${idx}`} className='small border-top py-1'>
+                                                        <div className='d-flex justify-content-between align-items-center flex-wrap gap-1'>
+                                                            <strong>{it.nama}</strong>
+                                                            <span className='d-flex align-items-center gap-2'>
+                                                                <span className='text-muted'>Terkirim: {it.jumlahKirim}</span>
+                                                                <span className='text-muted'>|</span>
+                                                                <span className='text-muted'>Diterima: {sudahTerima ? it.jumlahTerima : '-'}</span>
+                                                                {sudahTerima && <Badge bg={it.ceklis ? 'success' : 'warning'}>{it.ceklis ? 'Sesuai' : 'Sebagian'}</Badge>}
+                                                            </span>
+                                                        </div>
+                                                        {sudahTerima && selisih > 0 && (
+                                                            <div className='text-danger' style={{ fontSize: '12px' }}>
+                                                                {selisih} barang hilang/kurang — {it.keterangan || '-'}
+                                                            </div>
+                                                        )}
+                                                        {sudahTerima && selisih < 0 && (
+                                                            <div className='text-warning' style={{ fontSize: '12px' }}>
+                                                                {Math.abs(selisih)} barang berlebih — {it.keterangan || '-'}
+                                                            </div>
+                                                        )}
+                                                        {sudahTerima && selisih === 0 && it.keterangan && (
+                                                            <div className='text-muted' style={{ fontSize: '12px' }}>
+                                                                Keterangan: {it.keterangan}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                            {k.riwayat && <pre className='mt-2 p-2 bg-light small rounded' style={{ fontSize: '11px', whiteSpace: 'pre-wrap' }}>{k.riwayat}</pre>}
+                                        </div>
+                                    )}
+                                </Card.Body>
+                            </Card>
+                        );
+                    })}
+                    </div>
+                    {lacakList.length > tampil.length && (
+                        <Button size='sm' variant='outline-secondary' className='w-100' onClick={() => setBatas(b => b + 20)}>
+                            Muat lagi ({lacakList.length - tampil.length} tersisa)
+                        </Button>
                     )}
                 </Tab>
             </Tabs>

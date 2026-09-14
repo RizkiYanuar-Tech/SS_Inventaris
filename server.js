@@ -3,14 +3,8 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const crypto = require('crypto');
-const { GoogleSpreadsheet } = require('google-spreadsheet');
-const { JWT } = require('google-auth-library');
-const creds = require("./ss-inventory-bot-key");
-
 const app = express();
 const PORT = process.env.PORT;
-
-const spreadsheet_id = process.env.SPREADSHEET_ID;
 
 // ---- Jadwal Slot pengiriman (PRD seksi 7): Senin & Kamis, cutoff 15:00 WIB ----
 const SLOT_DAYS = [1, 4]; // Senin=1, Kamis=4
@@ -114,39 +108,16 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'frontend/dist')));
 
-// Data: Supabase (barang_inventory, transaksi, pesanan, pengiriman) + Google Sheets KHUSUS Outlet.
-// Akses Supabase terpusat di db.js; kode di bawah tidak menyentuh Sheet selain Outlet.
-const { sb, nowIso, nextIdTransaksi, kurangStock } = require('./db');
-
-// Google Sheets HANYA untuk tab Outlet (pengecualian sadar, link permanen)
-const serviceAccountAuth = new JWT({
-  email: creds.client_email,
-  key: creds.private_key,
-  scopes: ['https://www.googleapis.com/auth/spreadsheets']
-});
-
-const doc = new GoogleSpreadsheet(spreadsheet_id, serviceAccountAuth);
-
-const Sheet_Outlet = 'Outlet';
-
-let sheetOutlet;
+// Data: Supabase 5 tabel (barang_inventory, transaksi, pesanan, pengiriman, outlet).
+// Akses Supabase terpusat di db.js.
+const { sb, nowIso, kurangStock } = require('./db');
 
 async function initDb() {
-  for (const t of ['barang_inventory', 'transaksi', 'pesanan', 'pengiriman']) {
+  for (const t of ['barang_inventory', 'transaksi', 'pesanan', 'pengiriman', 'outlet']) {
     const r = await sb.from(t).select('*', { count: 'exact', head: true });
     if (r.error) throw new Error(`Tabel Supabase "${t}" tak terbaca: ${r.error.message}`);
   }
-  console.log('Supabase terhubung (4 tabel).');
-}
-
-async function initOutlet() {
-  await doc.loadInfo();
-  sheetOutlet = doc.sheetsByTitle[Sheet_Outlet];
-  if (!sheetOutlet) {
-    throw new Error(`Tab "${Sheet_Outlet}" tidak ditemukan di spreadsheet. Link outlet nonaktif sampai dibuat.`);
-  }
-  await sheetOutlet.loadHeaderRow();
-  console.log('Outlet live di Google Sheets:', doc.title);
+  console.log('Supabase terhubung (5 tabel).');
 }
 // ID Kirim: KRM-YYYYMMDD-NNN (NNN = urutan hari itu; hitung via prefix di DB)
 async function buatIdKirim() {
@@ -185,6 +156,8 @@ function pengirimanKeJson(row, untukOutlet = false) {
     alasan: row.alasan || '',
     namaPenerima: row.nama_penerima || null,
     tglTerima: row.tanggal_terima || null,
+    fotoKirim: row.foto_kirim || null,
+    fotoTerima: row.foto_terima || null,
   };
   if (!untukOutlet) {
     data.riwayat = row.riwayat_status || '';
@@ -194,31 +167,73 @@ function pengirimanKeJson(row, untukOutlet = false) {
 }
 
 async function simpanPengiriman(row) {
-  const r = await sb.from('pengiriman').update({
+  const payload = {
     token: row.token, tanggal_kirim: row.tanggal_kirim, status: row.status,
     items_json: row.items_json, ringkasan: row.ringkasan, alasan: row.alasan,
     nama_penerima: row.nama_penerima, tanggal_terima: row.tanggal_terima,
     riwayat_status: row.riwayat_status,
-  }).eq('id_kirim', row.id_kirim).select();
+  };
+  // ponytail: kolom foto menyusul via SQL user; tulis best-effort agar API tetap jalan tanpanya
+  if (row.foto_kirim !== undefined) payload.foto_kirim = row.foto_kirim || null;
+  if (row.foto_terima !== undefined) payload.foto_terima = row.foto_terima || null;
+  let r = await sb.from('pengiriman').update(payload).eq('id_kirim', row.id_kirim).select();
+  if (r.error && /foto/i.test(r.error.message || '')) {
+    delete payload.foto_kirim; delete payload.foto_terima;
+    r = await sb.from('pengiriman').update(payload).eq('id_kirim', row.id_kirim).select();
+  }
   if (r.error) throw new Error(r.error.message);
   return r.data[0];
 }
 
-async function catatTransaksi(id, nama, varian, kategori, jenis_transaksi, jumlah, satuan, idKirim = null) {
-  const r = await sb.from('transaksi').insert({
-    id_transaksi: await nextIdTransaksi(),
-    id_barang: id,
-    nama_barang: nama,
-    varian: varian || '',
-    kategori: kategori || '',
-    jenis: jenis_transaksi,
-    jumlah: Number(jumlah),
-    satuan: satuan || 'Pcs',
-    id_kirim: idKirim,
-    dibuat_pada: nowIso(),
-  }).select('id_transaksi');
+// Faktor konversi terstruktur: 1 <satuan_gudang> = <isi_per_gudang> <satuan>.
+// Metrik baku lolos tanpa data. NULL/tak cocok -> tolak (fail-closed).
+const ALIAS_SATUAN = {
+  gram: 'gr', grams: 'gr', g: 'gr', kilo: 'kg', kilogram: 'kg',
+  litre: 'liter', ltr: 'liter', l: 'liter',
+  pieces: 'pcs', piece: 'pcs', pc: 'pcs',
+};
+const normSatuan = (u) => ALIAS_SATUAN[String(u || '').trim().toLowerCase()] || String(u || '').trim().toLowerCase();
+const FAKTOR_METRIK = { 'kg>gr': 1000, 'gr>kg': 0.001, 'liter>ml': 1000, 'ml>liter': 0.001 };
+function parseKonversi(isiPerGudang, gudangItem, dari, ke) {
+  const d = normSatuan(dari);
+  const k = normSatuan(ke);
+  if (!d || d === k) return 1;
+  if (FAKTOR_METRIK[`${d}>${k}`]) return FAKTOR_METRIK[`${d}>${k}`];
+  const n = Number(isiPerGudang);
+  if (d === normSatuan(gudangItem) && Number.isFinite(n) && n > 0) return n;
+  return null;
+}
+
+async function catatTransaksi(id, nama, varian, kategori, jenis_transaksi, jumlah, satuan, hargaSatuan = null) {
+  const tulis = async (pakaiHarga) => {
+    const baris = {
+      id_barang: id,
+      nama_barang: nama,
+      varian: varian || '',
+      kategori_bahan: kategori || '',
+      jenis: jenis_transaksi,
+      jumlah: Number(jumlah),
+      satuan: satuan || 'Pcs',
+      dibuat_pada: nowIso(),
+    };
+    if (pakaiHarga && hargaSatuan != null && hargaSatuan !== '') baris.harga_satuan = Number(hargaSatuan);
+    return sb.from('transaksi').insert(baris).select('id_transaksi');
+  };
+  let r = await tulis(true);
+  if (r.error && /harga/i.test(r.error.message || '')) r = await tulis(false); // kolom belum migrasi → tulis tanpa harga
   if (r.error) throw new Error(r.error.message);
   return r.data[0].id_transaksi;
+}
+
+// Moving-average aset: avgBaru = (totalLama*avgLama + totalBayar) / (totalLama + qtyMasuk).
+// totalBayar = rupiah yang dibayar untuk qtyMasuk (sesuai nota, tanpa pusing satuan).
+function hitungAvg(avgLama, totalLama, totalBayar, qtyMasuk) {
+  const t = Number(totalLama) || 0;
+  const q = Number(qtyMasuk) || 0;
+  const bayar = Number(totalBayar) || 0;
+  if (!(q > 0) || !(bayar > 0) || (t + q) <= 0) return null;
+  const nilaiLama = avgLama != null && avgLama !== '' ? t * Number(avgLama) : 0;
+  return (nilaiLama + bayar) / (t + q);
 }
 
 async function cekThresholdDanKirimWA(id, nama, stockSekarang, threshold){
@@ -249,7 +264,7 @@ async function RandomSamplingChecking(){
 
     let pesan = "*CHECK PRODUK*\n\n Check Produk Berikut, apakah jumlah stock sesuai?";
     acak.forEach(row => {
-      pesan += `- Nama Barang: ${row.nama_barang} \n Jumlah Stock: ${row.jumlah_stock} \n`;
+      pesan += `- Nama Barang: ${row.nama_barang} \n Jumlah Stock: ${row.total} \n`;
     });
 
     await kirimPesan(pesan);
@@ -327,12 +342,15 @@ app.get('/api/cekBarang/:id', async (req, res) => {
         id: row.id_barang,
         nama: row.nama_barang,
         varian: row.varian,
-        kategori: row.kategori,
-        stock: Number(row.jumlah_stock),
-        threshold: Number(row.batas_restock),
-        satuanEceran: row.satuan_eceran || 'Pcs',
-        satuanGrosir: row.satuan_grosir || null,
-        isiPerGrosir: row.isi_per_grosir ? Number(row.isi_per_grosir) : null
+        kategori: row.kategori_bahan,
+        stock: Number(row.total),
+        threshold: Number(row.minimum_stock),
+        satuanEceran: row.satuan || 'Pcs',
+        satuanGrosir: row.satuan_gudang || null,
+        isiPerGrosir: row.isi_per_gudang != null ? Number(row.isi_per_gudang) : null,
+        hargaBarang: row.harga_barang != null ? Number(row.harga_barang) : null,
+        keterangan: row.keterangan || '',
+        divisi: row.divisi || ''
       });
     } else {
       res.json({ ditemukan: false, id });
@@ -351,12 +369,16 @@ app.get("/api/barang", async (req, res) => {
       id: row.id_barang,
       nama: row.nama_barang,
       varian: row.varian,
-      kategori: row.kategori,
-      stock: Number(row.jumlah_stock),
-      threshold: Number(row.batas_restock),
-      satuanEceran: row.satuan_eceran || 'Pcs',
-      satuanGrosir: row.satuan_grosir || null,
-      isiPerGrosir: row.isi_per_grosir ? Number(row.isi_per_grosir) : null
+      kategori: row.kategori_bahan,
+      stock: Number(row.total),
+      threshold: Number(row.minimum_stock),
+      satuanEceran: row.satuan || 'Pcs',
+      satuanGrosir: row.satuan_gudang || null,
+      isiPerGrosir: row.isi_per_gudang != null ? Number(row.isi_per_gudang) : null,
+      hargaBarang: row.harga_barang != null ? Number(row.harga_barang) : null,
+      keterangan: row.keterangan || '',
+      divisi: row.divisi || '',
+      istilah: row.istilah_data_resep || ''
     }));
     res.json(data);
   }catch (err){
@@ -373,7 +395,7 @@ app.get("/api/transaksi", async(req, res) => {
       timestamp: row.dibuat_pada ? formatWaktuBukti(row.dibuat_pada) : '-',
       idBarang: row.id_barang,
       nama: row.nama_barang,
-      kategori: row.kategori,
+      kategori: row.kategori_bahan,
       varian: row.varian,
       jenis: row.jenis,
       jumlah: Number(row.jumlah),
@@ -386,55 +408,196 @@ app.get("/api/transaksi", async(req, res) => {
   }
 });
 
-// Tambah barang baru
+// Tambah barang baru (id opsional -> auto MNL urut global; tanpa kolom ID di UI manual)
+async function buatIdBarang() {
+  for (let i = 0; i < 10; i++) {
+    const r = await sb.from('barang_inventory').select('id_barang', { count: 'exact', head: true }).like('id_barang', 'MNL-%');
+    if (r.error) throw new Error(r.error.message);
+    const calon = `MNL-${String((r.count || 0) + 1 + i).padStart(4, '0')}`;
+    const cek = await sb.from('barang_inventory').select('id_barang').eq('id_barang', calon).maybeSingle();
+    if (cek.error) throw new Error(cek.error.message);
+    if (!cek.data) return calon;
+  }
+  throw new Error('Gagal generate ID barang, coba lagi.');
+}
+
 app.post('/api/tambahBarangBaru', async (req, res) => {
   try {
-    const { id, nama, varian, kategori, jumlah, restock, satuanEceran, satuanGrosir, isiPerGrosir } = req.body;
-    const cek = await sb.from('barang_inventory').select('id_barang,nama_barang').eq('id_barang', String(id).trim()).maybeSingle();
-    if (cek.error) throw new Error(cek.error.message);
-    const ditemukan = cek.data;
+    const { id, nama, varian, kategori, jumlah, restock, satuanEceran, satuanGudang, isiPerGudang, divisi, keterangan, istilah, totalBayar } = req.body;
+    const namaBersih = String(nama || '').trim().replace(/\s+/g, ' ');
+    if (!namaBersih) {
+      return res.status(400).json({ sukses: false, pesan: 'Nama Barang wajib diisi.' });
+    }
+    const satuan = String(satuanEceran || 'Pcs').trim() || 'Pcs';
+    if (isiPerGudang != null && isiPerGudang !== '' && !(Number(isiPerGudang) > 0)) {
+      return res.status(400).json({ sukses: false, pesan: 'Isi per Satuan Gudang harus angka > 0 bila diisi.' });
+    }
+    if (Number(jumlah) > 0 && !(Number(totalBayar) > 0)) {
+      return res.status(400).json({ sukses: false, pesan: 'Total bayar (Rp) wajib diisi untuk stock awal.' });
+    }
 
-    if (ditemukan) {
+    let idPakai = String(id || '').trim();
+    if (idPakai) {
+      const cek = await sb.from('barang_inventory').select('id_barang,nama_barang').eq('id_barang', idPakai).maybeSingle();
+      if (cek.error) throw new Error(cek.error.message);
+      if (cek.data) {
+        return res.status(409).json({
+          sukses: false,
+          pesan: `ID Produk ${idPakai} sudah terdaftar sebagai ${cek.data.nama_barang}. Check kembali ID Produk yang akan dimasukkan.`
+        });
+      }
+    } else {
+      idPakai = await buatIdBarang();
+    }
+
+    const mirip = await sb.from('barang_inventory').select('id_barang,nama_barang').ilike('nama_barang', namaBersih).limit(1);
+    if (mirip.error) throw new Error(mirip.error.message);
+    if (mirip.data && mirip.data.length) {
       return res.status(409).json({
         sukses: false,
-        pesan: `ID Produk ${id} sudah terdaftar sebagai ${ditemukan.nama_barang}. Check kembali ID Produk yang akan dimasukkan.`
+        pesan: `Nama mirip sudah ada: ${mirip.data[0].nama_barang} (${mirip.data[0].id_barang}). Pakai yang ada atau ubah nama.`
       });
     }
 
-    if (!satuanGrosir || !isiPerGrosir) {
-      return res.status(400).json({
-        sukses: false,
-        pesan: 'Nama Kemasan dan Isi per Kemasan wajib diisi untuk setiap barang.'
-      });
-    }
-
+    const kategoriSimpan = String(kategori || '').trim().toUpperCase();
     const ins = await sb.from('barang_inventory').insert({
-      id_barang: id,
-      nama_barang: nama,
+      id_barang: idPakai,
+      nama_barang: namaBersih,
       varian: varian || '',
-      kategori: kategori || '',
-      jumlah_stock: Number(jumlah),
-      batas_restock: Number(restock) || 5,
-      satuan_eceran: satuanEceran || 'Pcs',
-      satuan_grosir: satuanGrosir,
-      isi_per_grosir: Number(isiPerGrosir),
+      kategori_bahan: kategoriSimpan,
+      total: Number(jumlah) || 0,
+      minimum_stock: Number(restock) || 5,
+      satuan,
+      satuan_gudang: satuanGudang || '',
+      isi_per_gudang: isiPerGudang != null && isiPerGudang !== '' ? Number(isiPerGudang) : null,
+      divisi: divisi || '',
+      keterangan: keterangan || '',
+      istilah_data_resep: istilah || '',
       dibuat_pada: nowIso(),
+      ...(Number(jumlah) > 0 && Number(totalBayar) > 0 ? { harga_barang: Number(totalBayar) / Number(jumlah) } : {}),
     });
-    if (ins.error) throw new Error(ins.error.message);
+    if (ins.error) {
+      if (/harga_barang/i.test(ins.error.message || '')) {
+        throw new Error('Kolom harga_barang belum ada. Jalankan migrasi_harga_barang.sql di Supabase dulu, lalu ulangi.');
+      }
+      throw new Error(ins.error.message);
+    }
 
-    await catatTransaksi(id, nama, varian, kategori, 'Masuk', jumlah, satuanEceran || 'Pcs');
+    await catatTransaksi(idPakai, namaBersih, varian, kategoriSimpan, 'Masuk', Number(jumlah) || 0, satuan,
+      Number(jumlah) > 0 && Number(totalBayar) > 0 ? Number(totalBayar) / Number(jumlah) : null);
 
-    res.json({ sukses: true, pesan: `Barang baru ${nama} tersimpan ke database. Stock awal: ${jumlah} ${satuanEceran || 'Pcs'}` });
+    res.json({ sukses: true, pesan: `Barang baru ${namaBersih} tersimpan ke database. Stock awal: ${Number(jumlah) || 0} ${satuan}` });
   } catch (err) {
     console.error(err);
     res.status(500).json({ sukses: false, pesan: 'Gagal menyimpan: ' + err.message });
   }
 });
 
+// Ubah metadata barang (ID + stock terkunci; satuan wajib konfirmasi ketik-ulang)
+app.put('/api/barang/:id', async (req, res) => {
+  try {
+    const id = String(req.params.id || '').trim();
+    const ada = await sb.from('barang_inventory').select('*').eq('id_barang', id).maybeSingle();
+    if (ada.error) throw new Error(ada.error.message);
+    if (!ada.data) return res.status(404).json({ sukses: false, pesan: 'Barang tidak ditemukan.' });
+    if ('id' in req.body || 'stock' in req.body || 'total' in req.body) {
+      return res.status(400).json({ sukses: false, pesan: 'ID dan stock tidak bisa diubah. Stock hanya via Masuk/Keluar.' });
+    }
+    const { nama, varian, kategori, restock, satuanEceran, konfirmasiSatuan, satuanGudang, isiPerGudang, divisi, keterangan, istilah, hargaBarang } = req.body;
+    const patch = {};
+    if (nama !== undefined) {
+      const namaBersih = String(nama || '').trim().replace(/\s+/g, ' ');
+      if (!namaBersih) return res.status(400).json({ sukses: false, pesan: 'Nama Barang wajib diisi.' });
+      const mirip = await sb.from('barang_inventory').select('id_barang,nama_barang').ilike('nama_barang', namaBersih).neq('id_barang', id).limit(1);
+      if (mirip.error) throw new Error(mirip.error.message);
+      if (mirip.data && mirip.data.length) {
+        return res.status(409).json({
+          sukses: false,
+          pesan: `Nama mirip sudah ada: ${mirip.data[0].nama_barang} (${mirip.data[0].id_barang}). Pakai yang ada atau ubah nama.`
+        });
+      }
+      patch.nama_barang = namaBersih;
+    }
+    if (varian !== undefined) patch.varian = String(varian || '').trim();
+    if (kategori !== undefined) patch.kategori_bahan = String(kategori || '').trim().toUpperCase();
+    if (divisi !== undefined) patch.divisi = String(divisi || '').trim();
+    if (keterangan !== undefined) patch.keterangan = String(keterangan || '');
+    if (istilah !== undefined) patch.istilah_data_resep = String(istilah || '').trim();
+    if (restock !== undefined) {
+      if (!(Number(restock) >= 0)) return res.status(400).json({ sukses: false, pesan: 'Batas restock harus angka >= 0.' });
+      patch.minimum_stock = Number(restock);
+    }
+    if (satuanEceran !== undefined) {
+      const satuanBaru = String(satuanEceran || '').trim();
+      if (!satuanBaru) return res.status(400).json({ sukses: false, pesan: 'Satuan tidak boleh kosong.' });
+      if (satuanBaru !== (ada.data.satuan || 'Pcs')) {
+        if (konfirmasiSatuan !== satuanBaru) {
+          return res.status(400).json({ sukses: false, pesan: `Ketik ulang "${satuanBaru}" persis untuk ganti satuan. Stock ${ada.data.total} ikut berubah makna menjadi ${satuanBaru}.` });
+        }
+        patch.satuan = satuanBaru;
+      }
+    }
+    if (satuanGudang !== undefined) patch.satuan_gudang = String(satuanGudang || '').trim();
+    if (isiPerGudang !== undefined) {
+      if (isiPerGudang === '' || isiPerGudang == null) patch.isi_per_gudang = null;
+      else {
+        if (!(Number(isiPerGudang) > 0)) return res.status(400).json({ sukses: false, pesan: 'Isi per Satuan Gudang harus angka > 0 bila diisi.' });
+        patch.isi_per_gudang = Number(isiPerGudang);
+      }
+    }
+    if (hargaBarang !== undefined) {
+      if (hargaBarang === '' || hargaBarang == null) patch.harga_barang = null;
+      else {
+        if (!(Number(hargaBarang) >= 0)) return res.status(400).json({ sukses: false, pesan: 'Harga harus angka >= 0.' });
+        patch.harga_barang = Number(hargaBarang);
+      }
+    }
+    if (!Object.keys(patch).length) return res.json({ sukses: true, pesan: 'Tidak ada perubahan.' });
+    const up = await sb.from('barang_inventory').update(patch).eq('id_barang', id).select('id_barang');
+    if (up.error) throw new Error(up.error.message);
+    res.json({ sukses: true, pesan: `Barang ${id} diperbarui.` });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ sukses: false, pesan: 'Gagal mengubah: ' + err.message });
+  }
+});
+
+// Hapus barang + transaksi miliknya; tolak bila dipakai di pesanan/pengiriman
+app.delete('/api/barang/:id', async (req, res) => {
+  try {
+    const id = String(req.params.id || '').trim();
+    const ada = await sb.from('barang_inventory').select('id_barang,nama_barang').eq('id_barang', id).maybeSingle();
+    if (ada.error) throw new Error(ada.error.message);
+    if (!ada.data) return res.status(404).json({ sukses: false, pesan: 'Barang tidak ditemukan.' });
+    const pakai = [];
+    for (const [tabel, kunci, kolom] of [['pesanan', 'id_pesan', 'items_json'], ['pengiriman', 'id_kirim', 'items_json']]) {
+      const r = await sb.from(tabel).select(kunci + ',' + kolom);
+      if (r.error) throw new Error(r.error.message);
+      const kena = (r.data || []).filter(x => {
+        let items = x[kolom];
+        if (typeof items === 'string') { try { items = JSON.parse(items || '[]'); } catch { items = []; } }
+        return Array.isArray(items) && items.some(it => String(it.id) === id);
+      }).map(x => x[kunci]);
+      if (kena.length) pakai.push(tabel + ' ' + kena.slice(0, 3).join(', ') + (kena.length > 3 ? ` (+${kena.length - 3})` : ''));
+    }
+    if (pakai.length) {
+      return res.status(409).json({ sukses: false, pesan: `${ada.data.nama_barang} dipakai di ${pakai.join('; ')}. Tidak bisa dihapus.` });
+    }
+    const ht = await sb.from('transaksi').delete().eq('id_barang', id);
+    if (ht.error) throw new Error(ht.error.message);
+    const hb = await sb.from('barang_inventory').delete().eq('id_barang', id);
+    if (hb.error) throw new Error(hb.error.message);
+    res.json({ sukses: true, pesan: `Barang ${ada.data.nama_barang} (${id}) dihapus.` });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ sukses: false, pesan: 'Gagal menghapus: ' + err.message });
+  }
+});
+
 // Proses transaksi masuk/keluar-
 app.post('/api/prosesTransaksi', async (req, res) => {
   try {
-    const { id, jenis, jumlah, satuanInput } = req.body;
+    const { id, jenis, jumlah, satuanInput, totalBayar } = req.body;
     const b = await sb.from('barang_inventory').select('*').eq('id_barang', String(id).trim()).maybeSingle();
     if (b.error) throw new Error(b.error.message);
     const row = b.data;
@@ -443,28 +606,41 @@ app.post('/api/prosesTransaksi', async (req, res) => {
       return res.json({ sukses: false, pesan: 'Barang tidak ditemukan di database.' });
     }
 
-    const satuanEceran = row.satuan_eceran || 'Pcs';
-    const satuanGrosir = row.satuan_grosir || null;
-    const isiPerGrosir = row.isi_per_grosir ? Number(row.isi_per_grosir) : null;
+    const satuanEceran = row.satuan || 'Pcs';
+    const satuanMinta = String(satuanInput || satuanEceran).trim() || satuanEceran;
 
     const jumlahInput = Number(jumlah);
-    let jmlh;
-
-    if (satuanInput && satuanGrosir && satuanInput === satuanGrosir) {
-      if (!isiPerGrosir) {
-        return res.json({ sukses: false, pesan: `Barang ini belum punya konversi "Isi per Grosir" yang valid.` });
+    let faktor = 1;
+    if (satuanMinta.toLowerCase() !== satuanEceran.toLowerCase()) {
+      faktor = parseKonversi(row.isi_per_gudang, row.satuan_gudang, satuanMinta, satuanEceran);
+      if (!faktor) {
+        return res.json({ sukses: false, pesan: `Tak ada konversi ${satuanMinta} → ${satuanEceran}. Lengkapi Isi per Satuan Gudang di data barang.` });
       }
-      jmlh = jumlahInput * isiPerGrosir; // misal 2 Box x 24 Pcs = 48 Pcs
-    } else {
-      jmlh = jumlahInput; // input langsung dalam Satuan Eceran
     }
+    const jmlh = jumlahInput * faktor;
 
-    let stockBaru = Number(row.jumlah_stock);
+    let stockBaru = Number(row.total);
+    let avgBaru = row.harga_barang != null ? Number(row.harga_barang) : null;
+    let hargaSatuanTrx = null; // jejak nilai per satuan di baris transaksi
 
     if (jenis === 'Masuk') {
-      const up = await sb.from('barang_inventory').update({ jumlah_stock: stockBaru + jmlh }).eq('id_barang', row.id_barang).select('jumlah_stock');
-      if (up.error) throw new Error(up.error.message);
-      stockBaru = Number(up.data[0].jumlah_stock);
+      if (!(jmlh > 0)) {
+        return res.json({ sukses: false, pesan: 'Jumlah masuk harus > 0.' });
+      }
+      const bayar = totalBayar != null && totalBayar !== '' ? Number(totalBayar) : null;
+      if (!(bayar > 0)) {
+        return res.json({ sukses: false, pesan: `Isi Total bayar (Rp) — wajib untuk setiap Barang Masuk ${row.nama_barang}.` });
+      }
+      avgBaru = hitungAvg(avgBaru, stockBaru, bayar, jmlh);
+      hargaSatuanTrx = bayar / jmlh;
+      const up = await sb.from('barang_inventory').update({ total: stockBaru + jmlh, harga_barang: avgBaru }).eq('id_barang', row.id_barang).select('total');
+      if (up.error) {
+        if (/harga_barang/i.test(up.error.message || '')) {
+          return res.json({ sukses: false, pesan: 'Kolom harga_barang belum ada. Jalankan migrasi_harga_barang.sql di Supabase dulu, lalu ulangi.' });
+        }
+        throw new Error(up.error.message);
+      }
+      stockBaru = Number(up.data[0].total);
     } else if (jenis === 'Keluar') {
       if (jmlh > stockBaru) {
         return res.json({ sukses: false, pesan: `Stock ${row.nama_barang} yang keluar melebihi stock saat ini. \n ${stockBaru} ${satuanEceran}`});
@@ -474,26 +650,28 @@ app.post('/api/prosesTransaksi', async (req, res) => {
         return res.json({ sukses: false, pesan: `Stock ${row.nama_barang} berubah saat diproses (sisa ${hasil.sisa}). Ulangi transaksi.` });
       }
       stockBaru = hasil.sisa;
+      hargaSatuanTrx = avgBaru; // keluar dinilai avg saat itu (avg tidak berubah)
     } else {
       return res.json({ sukses: false, pesan: 'Jenis transaksi tidak valid.' });
     }
 
-    const keteranganSatuan = satuanInput && satuanInput === satuanGrosir
-      ? `${jumlahInput} ${satuanGrosir} (= ${jmlh} ${satuanEceran})`
+    const keteranganSatuan = faktor !== 1
+      ? `${jumlahInput} ${satuanMinta} (= ${jmlh} ${satuanEceran})`
       : `${jmlh} ${satuanEceran}`;
 
     await catatTransaksi(row.id_barang,
                         row.nama_barang,
                         row.varian,
-                        row.kategori,
+                        row.kategori_bahan,
                         jenis,
                         jmlh,
-                        satuanEceran);
+                        satuanEceran,
+                        hargaSatuanTrx);
     await cekThresholdDanKirimWA(
       row.id_barang,
       row.nama_barang,
       stockBaru,
-      Number(row.batas_restock)
+      Number(row.minimum_stock)
     );
 
     res.json({
@@ -537,9 +715,16 @@ async function buatPengiriman(outlet, items, idPesan = null) {
   for (const it of items) {
     const row = ref.data.find(r => String(r.id_barang).trim() === String(it.id || '').trim());
     if (!row) throw new Error(`ID ${it.id} tidak ditemukan di database.`);
-    const qty = Number(it.jumlah);
+    const satuanRow = row.satuan || 'Pcs';
+    const satuanMinta = String(it.satuan || satuanRow).trim() || satuanRow;
+    let faktor = 1;
+    if (satuanMinta.toLowerCase() !== satuanRow.toLowerCase()) {
+      faktor = parseKonversi(row.isi_per_gudang, row.satuan_gudang, satuanMinta, satuanRow);
+      if (!faktor) throw new Error(`${row.nama_barang}: tak ada konversi ${satuanMinta} → ${satuanRow}. Lengkapi Isi per Satuan Gudang.`);
+    }
+    const qty = Number(it.jumlah) * faktor;
     if (!qty || qty <= 0) throw new Error(`Jumlah ${row.nama_barang} tidak valid.`);
-    const stock = Number(row.jumlah_stock);
+    const stock = Number(row.total);
     if (qty > stock) throw new Error(`Stock ${row.nama_barang} kurang (minta ${qty}, sisa ${stock}).`);
     siap.push({ row, qty });
   }
@@ -555,7 +740,6 @@ async function buatPengiriman(outlet, items, idPesan = null) {
     keterangan: ''
   }));
 
-  // Tulis berurutan hormati FK: stock+transaksi (id_kirim NULL dulu) -> kirim -> link.
   // Gagal di tengah (balapan stock) -> kompensasi: kembalikan stock + hapus jejak, lalu throw.
   const jejak = []; // [{id_transaksi, id_barang, qty}]
   try {
@@ -563,16 +747,17 @@ async function buatPengiriman(outlet, items, idPesan = null) {
       const hasil = await kurangStock(row.id_barang, qty);
       if (!hasil.ok) throw new Error(`Stock ${row.nama_barang} berubah saat diproses (sisa ${hasil.sisa}). Ulangi.`);
       const idTrx = await catatTransaksi(row.id_barang, row.nama_barang, row.varian,
-        row.kategori, 'Keluar', qty, row.satuan_eceran || 'Pcs', null);
+        row.kategori_bahan, 'Keluar', qty, row.satuan || 'Pcs',
+        row.harga_barang != null ? Number(row.harga_barang) : null);
       jejak.push({ id_transaksi: idTrx, id_barang: row.id_barang, qty });
       await cekThresholdDanKirimWA(row.id_barang, row.nama_barang,
-        hasil.sisa, Number(row.batas_restock));
+        hasil.sisa, Number(row.minimum_stock));
     }
   } catch (e) {
     for (const j of jejak) {
       try {
-        const cur = await sb.from('barang_inventory').select('jumlah_stock').eq('id_barang', j.id_barang).single();
-        if (cur.data) await sb.from('barang_inventory').update({ jumlah_stock: Number(cur.data.jumlah_stock) + j.qty }).eq('id_barang', j.id_barang);
+        const cur = await sb.from('barang_inventory').select('total').eq('id_barang', j.id_barang).single();
+        if (cur.data) await sb.from('barang_inventory').update({ total: Number(cur.data.total) + j.qty }).eq('id_barang', j.id_barang);
         await sb.from('transaksi').delete().eq('id_transaksi', j.id_transaksi);
       } catch { /* kompensasi best-effort */ }
     }
@@ -597,23 +782,6 @@ async function buatPengiriman(outlet, items, idPesan = null) {
     dibuat_pada: nowIso(),
   });
   if (ins.error) throw new Error(ins.error.message);
-  // Tautkan jejak transaksi ke kiriman (FK kini valid karena baris kirim sudah ada)
-  try {
-    for (const j of jejak) {
-      const lk = await sb.from('transaksi').update({ id_kirim: idKirim }).eq('id_transaksi', j.id_transaksi);
-      if (lk.error) throw new Error(lk.error.message);
-    }
-  } catch (e) {
-    for (const j of jejak) {
-      try {
-        const cur = await sb.from('barang_inventory').select('jumlah_stock').eq('id_barang', j.id_barang).single();
-        if (cur.data) await sb.from('barang_inventory').update({ jumlah_stock: Number(cur.data.jumlah_stock) + j.qty }).eq('id_barang', j.id_barang);
-        await sb.from('transaksi').delete().eq('id_transaksi', j.id_transaksi);
-      } catch { /* kompensasi best-effort */ }
-    }
-    await sb.from('pengiriman').delete().eq('id_kirim', idKirim).catch(() => {});
-    throw e;
-  }
   return { idKirim, ringkasan };
 }
 
@@ -640,7 +808,8 @@ app.get('/api/pengiriman', async (req, res) => {
 });
 
 // Tandai Dikirim (manual): SIAP KIRIM -> DIKIRIM, token berita acara lahir.
-// Gerbang scan keluar (wajib): pindaian harus mencakup eksak semua ID line kiriman.
+// Gerbang verifikasi: ceklis per baris by POSISI index (ID bisa kembar '-') + foto kirim opsional.
+// Gagal upload foto di frontend tak memblokir — foto null tetap boleh Tandai.
 app.post('/api/pengiriman/:id/kirim', async (req, res) => {
   try {
     const row = await cariPengiriman(req.params.id);
@@ -651,34 +820,32 @@ app.post('/api/pengiriman/:id/kirim', async (req, res) => {
     let dikirim = row.items_json;
     if (typeof dikirim === 'string') { try { dikirim = JSON.parse(dikirim || '[]'); } catch { dikirim = []; } }
     if (!Array.isArray(dikirim)) dikirim = [];
-    const { pindaian } = req.body || {};
+    const { pindaian, fotoKirim } = req.body || {};
     if (!Array.isArray(pindaian) || pindaian.length === 0) {
-      return res.status(409).json({ sukses: false, pesan: 'Belum ada line terpindai. Pindai semua barang kiriman dulu.' });
+      return res.status(409).json({ sukses: false, pesan: 'Belum ada line terverifikasi. Ceklis semua barang kiriman dulu.' });
     }
-    const setKirim = new Set(dikirim.map(it => String(it.id)));
-    const setPindai = new Set(pindaian.map(p => String(p.id)));
-    const kurang = [...setKirim].filter(id => !setPindai.has(id));
+    const okIndex = new Set(pindaian.map(p => Number(p.index)).filter(n => Number.isInteger(n) && n >= 0));
+    const kurang = dikirim.map((it, i) => ({ it, i })).filter(({ i }) => !okIndex.has(i));
     if (kurang.length) {
-      return res.status(409).json({ sukses: false, pesan: `Belum terpindai: ${kurang.join(', ')}.` });
+      return res.status(409).json({ sukses: false, pesan: `Belum diceklis: ${kurang.map(({ it }) => it.nama).join(', ')}.` });
     }
-    const asing = [...setPindai].filter(id => !setKirim.has(id));
+    const asing = [...okIndex].filter(i => i < 0 || i >= dikirim.length);
     if (asing.length) {
-      return res.status(400).json({ sukses: false, pesan: `ID asing bukan bagian kiriman: ${asing.join(', ')}.` });
+      return res.status(400).json({ sukses: false, pesan: `Baris asing bukan bagian kiriman: ${asing.join(', ')}.` });
     }
-    const caraMap = {};
-    for (const p of pindaian) caraMap[String(p.id)] = p.cara === 'manual' ? 'manual' : 'scan';
-    const hasil = dikirim.map(it => ({ ...it, dipindai: true, cara: caraMap[String(it.id)] }));
+    const hasil = dikirim.map(it => ({ ...it, dipindai: true, cara: 'ceklis' }));
     const token = crypto.randomUUID();
     row.items_json = hasil;
     row.token = token;
+    if (fotoKirim !== undefined) row.foto_kirim = String(fotoKirim || '').trim() || null;
     row.tanggal_kirim = formatWaktuBukti();
     row.status = 'DIKIRIM';
-    row.riwayat_status = tambahRiwayat(row.riwayat_status, `Dipindai keluar: ${hasil.map(it => `${it.nama} (${it.cara})`).join(', ')}`);
+    row.riwayat_status = tambahRiwayat(row.riwayat_status, `Diverifikasi ceklis: ${hasil.map(it => it.nama).join(', ')}${row.foto_kirim ? ' + foto paket' : ' (tanpa foto)'}`);
     row.riwayat_status = tambahRiwayat(row.riwayat_status, 'Dikirim (link berita acara aktif)');
     await simpanPengiriman(row);
     await mirrorPesanan(row.id_pesan, 'DIKIRIM', 'Dikirim (link berita acara aktif)');
     // WA admin fire-and-forget (path saja: domain publik tak dikenal server; URL penuh via Salin)
-    kirimPesan(`*LINK BERITA ACARA*\nKirim ${row.id_kirim} ke ${row.outlet} DIKIRIM.\nLink: /terima/${token}\nTeruskan ke outlet via WA.`);
+    kirimPesan(`*LINK BERITA ACARA*\nKirim ${row.id_kirim} ke ${row.outlet} DIKIRIM.\nLink: /terima/${token}\nTeruskan ke outlet via WA. Outlet juga bisa buka link pemesanan → tab Surat Jalan.`);
     res.json({ sukses: true, token, pesan: `Pengiriman ${row.id_kirim} DIKIRIM. Kirim link berita acara ke outlet via WA.` });
   } catch (err) {
     console.error(err);
@@ -741,7 +908,7 @@ app.get('/api/pengiriman/:token/lihat', async (req, res) => {
 // Laporan terima outlet: hanya dari DIKIRIM, nama wajib, baris tanpa ceklis wajib jumlah + keterangan
 app.post('/api/pengiriman/:token/konfirmasi', async (req, res) => {
   try {
-    const { namaPenerima, items } = req.body;
+    const { namaPenerima, items, fotoTerima } = req.body;
     if (!namaPenerima || !String(namaPenerima).trim()) {
       return res.status(400).json({ sukses: false, pesan: 'Nama penerima wajib diisi.' });
     }
@@ -782,8 +949,9 @@ app.post('/api/pengiriman/:token/konfirmasi', async (req, res) => {
     row.alasan = buatAlasan(hasil);
     row.nama_penerima = String(namaPenerima).trim();
     row.tanggal_terima = formatWaktuBukti();
+    if (fotoTerima !== undefined) row.foto_terima = String(fotoTerima || '').trim() || null;
     row.status = status;
-    row.riwayat_status = tambahRiwayat(row.riwayat_status, `Dilaporkan outlet (${status}) oleh ${String(namaPenerima).trim()}`);
+    row.riwayat_status = tambahRiwayat(row.riwayat_status, `Dilaporkan outlet (${status}) oleh ${String(namaPenerima).trim()}${row.foto_terima ? ' + foto' : ''}`);
     await simpanPengiriman(row);
     await mirrorPesanan(row.id_pesan, status, `Dilaporkan outlet (${status})`);
     // WA admin fire-and-forget (gagal kirim tak menggagalkan laporan — kirimPesan aman)
@@ -797,27 +965,14 @@ app.post('/api/pengiriman/:token/konfirmasi', async (req, res) => {
 
 // ---- Pesanan outlet (T2a) ----
 
-const HEADER_OUTLET = ['Slug', 'Token', 'Outlet'];
 // P1b: status yang memblokir pesan baru (terminal: DITERIMA/DITERIMA SEBAGIAN/DITOLAK)
 const STATUS_AKTIF_PESANAN = ['BARU', 'DISETUJUI', 'DISETUJUI SEBAGIAN', 'SIAP KIRIM', 'DIKIRIM'];
 
-function butuhSheetOutlet(res) {
-  if (!sheetOutlet) {
-    res.status(503).json({ sukses: false, pesan: `Tab "${Sheet_Outlet}" belum ada di spreadsheet. Buat tab + header dulu (Step 0.1).` });
-    return false;
-  }
-  const hilang = HEADER_OUTLET.filter(h => !sheetOutlet.headerValues.includes(h));
-  if (hilang.length) {
-    res.status(503).json({ sukses: false, pesan: `Header kurang di tab "${Sheet_Outlet}": ${hilang.join(', ')}. Samakan persis (huruf besar/kecil & spasi).` });
-    return false;
-  }
-  return true;
-}
-
-// Auth link permanen: token saja, slug diabaikan (PRD seksi 6)
+// Auth link permanen: token saja, slug diabaikan (PRD seksi 6). Outlet di Supabase.
 async function cariOutletByToken(token) {
-  const rows = await sheetOutlet.getRows();
-  return rows.find(r => String(r.get('Token') || '').trim() === String(token || '').trim());
+  const r = await sb.from('outlet').select('*').eq('token', String(token || '').trim()).maybeSingle();
+  if (r.error) throw new Error(r.error.message);
+  return r.data || null;
 }
 
 async function buatIdPesan() {
@@ -827,21 +982,22 @@ async function buatIdPesan() {
   return `PSN-${today}-${String((r.count || 0) + 1).padStart(3, '0')}`;
 }
 
-function pesananKeJson(row, linkTerima = null) {
+function pesananKeJson(row, linkTerima = null, foto = {}) {
   let items = row.items_json;
   if (typeof items === 'string') { try { items = JSON.parse(items || '[]'); } catch { items = []; } }
   if (!Array.isArray(items)) items = [];
   return {
     idPesan: row.id_pesan,
     outlet: row.outlet,
-    tanggalPesan: row.tanggal_pesan,
-    batchMasuk: row.batch_masuk,
-    rencanaKirim: row.rencana_kirim,
+    tanggalPesan: row.tanggal_pemesanan,
+    batchMasuk: row.tanggal_pemesanan,
+    rencanaKirim: row.tanggal_pengiriman,
     status: row.status,
     items,
     ringkasan: row.ringkasan || '',
-    alasanTolak: row.alasan_tolak || '',
     linkTerima,
+    fotoKirim: foto.fotoKirim || null,
+    fotoTerima: foto.fotoTerima || null,
   };
 }
 
@@ -854,7 +1010,7 @@ async function cariPesanan(idPesan) {
 async function simpanPesanan(row) {
   const r = await sb.from('pesanan').update({
     status: row.status, items_json: row.items_json, ringkasan: row.ringkasan,
-    alasan_tolak: row.alasan_tolak, riwayat_status: row.riwayat_status,
+    riwayat_status: row.riwayat_status,
   }).eq('id_pesan', row.id_pesan).select();
   if (r.error) throw new Error(r.error.message);
   return r.data[0];
@@ -872,47 +1028,58 @@ app.get('/api/pesanan', async (req, res) => {
   }
 });
 
-// Outlet: 1x fetch untuk halaman pesan (identitas + katalog tanpa stock + jadwal + riwayat milik token)
+// Outlet: 1x fetch untuk halaman pesan (identitas + katalog tanpa stock + jadwal + riwayat milik token).
+// ?ringan=1 untuk poll: tanpa katalog (frontend pakai katalog fetch penuh pertama).
 app.get('/api/pesan/:token', async (req, res) => {
   try {
-    if (!butuhSheetOutlet(res)) return;
     const outlet = await cariOutletByToken(req.params.token);
     if (!outlet) return res.status(404).json({ error: 'Link tidak valid.' });
 
-    const br = await sb.from('barang_inventory').select('*').order('dibuat_pada', { ascending: true });
-    if (br.error) throw new Error(br.error.message);
-    const katalog = br.data.map(b => ({
-      id: b.id_barang,
-      nama: b.nama_barang,
-      varian: b.varian || '',
-      satuan: b.satuan_eceran || 'Pcs',
-      kategori: b.kategori || '',
-    }));
+    const ringan = String(req.query.ringan || '') === '1';
+    let katalog = [];
+    if (!ringan) {
+      const br = await sb.from('barang_inventory').select('*').order('dibuat_pada', { ascending: true });
+      if (br.error) throw new Error(br.error.message);
+      katalog = br.data.map(b => ({
+        id: b.id_barang,
+        nama: b.nama_barang,
+        varian: b.varian || '',
+        satuan: b.satuan || 'Pcs',
+        kategori: b.kategori_bahan || '',
+      }));
+    }
 
     const { batchLabel, kirimLabel } = hitungSlot(new Date());
 
-    // Link berita acara lahir saat Tandai Dikirim (sebelumnya null = "belum dikirim")
-    let tokenKirim = {};
+    // Link berita acara lahir saat Tandai Dikirim (sebelumnya null = "belum dikirim").
+    // Token tetap ada pasca-lapor agar Tab Surat Jalan bisa tampilkan arsip terkunci.
+    // Foto kiriman ikut agar tiket outlet bisa tampilkan thumbnail ala Lacak.
+    let infoKirim = {};
     try {
-      const dk = await sb.from('pengiriman').select('id_pesan,token').eq('status', 'DIKIRIM');
+      const dk = await sb.from('pengiriman').select('id_pesan,token,foto_kirim,foto_terima');
       if (dk.error) throw new Error(dk.error.message);
       for (const x of dk.data) {
-        if ((x.token || '').trim() && x.id_pesan) tokenKirim[String(x.id_pesan).trim()] = String(x.token).trim();
+        const id = String(x.id_pesan || '').trim();
+        if ((x.token || '').trim() && id) infoKirim[id] = {
+          link: `/terima/${String(x.token).trim()}`,
+          fotoKirim: x.foto_kirim || null,
+          fotoTerima: x.foto_terima || null,
+        };
       }
-    } catch { tokenKirim = {}; }
+    } catch { infoKirim = {}; }
 
     const sp = await sb.from('pesanan').select('*').eq('token_outlet', String(req.params.token).trim()).order('dibuat_pada', { ascending: false });
     if (sp.error) throw new Error(sp.error.message);
     const milik = sp.data.map(x => {
       const id = String(x.id_pesan || '').trim();
-      const link = tokenKirim[id] ? `/terima/${tokenKirim[id]}` : null;
-      return pesananKeJson(x, link);
+      const info = infoKirim[id] || {};
+      return pesananKeJson(x, info.link || null, info);
     });
     const aktif = milik.find(x => STATUS_AKTIF_PESANAN.includes(String(x.status || '').trim()));
 
     res.json({
-      outlet: outlet.get('Outlet'),
-      slug: outlet.get('Slug'),
+      outlet: outlet.nama_outlet,
+      slug: outlet.slug,
       jadwal: { batchMasuk: batchLabel, rencanaKirim: kirimLabel },
       katalog,
       riwayat: milik,
@@ -928,7 +1095,6 @@ app.get('/api/pesan/:token', async (req, res) => {
 // Outlet (+ Tab Buat gudang): submit keranjang -> BARU + slot otomatis + WA admin
 app.post('/api/pesan/:token', async (req, res) => {
   try {
-    if (!butuhSheetOutlet(res)) return;
     const outlet = await cariOutletByToken(req.params.token);
     if (!outlet) return res.status(404).json({ sukses: false, pesan: 'Link tidak valid.' });
 
@@ -961,7 +1127,7 @@ app.post('/api/pesan/:token', async (req, res) => {
         id: b.id_barang,
         nama: b.nama_barang,
         varian: b.varian || '',
-        satuan: b.satuan_eceran || 'Pcs',
+        satuan: b.satuan || 'Pcs',
         qtyPesan: qty,
       });
     }
@@ -973,23 +1139,20 @@ app.post('/api/pesan/:token', async (req, res) => {
     const pemesan = String(namaPemesan).trim();
     const ins = await sb.from('pesanan').insert({
       id_pesan: idPesan,
-      slug_outlet: outlet.get('Slug'),
       token_outlet: String(req.params.token).trim(),
-      outlet: outlet.get('Outlet'),
-      tanggal_pesan: formatWaktuBukti(sekarang),
-      batch_masuk: batchLabel,
-      rencana_kirim: kirimLabel,
+      outlet: outlet.nama_outlet,
+      tanggal_pemesanan: formatWaktuBukti(sekarang),
+      tanggal_pengiriman: kirimLabel,
       status: 'BARU',
       items_json: jadi,
       ringkasan,
-      alasan_tolak: '',
       riwayat_status: `${formatWaktuBukti(sekarang)} - Dibuat via link outlet oleh ${pemesan}`,
       dibuat_pada: nowIso(),
     });
     if (ins.error) throw new Error(ins.error.message);
 
     // WA otomatis ke admin (gagal kirim tidak menggagalkan pesanan — kirimPesan aman)
-    kirimPesan(`*PESANAN BARU ${idPesan}*\nOutlet: ${outlet.get('Outlet')} (oleh ${pemesan})\n${ringkasan}\nBatch: ${batchLabel} | Rencana kirim: ${kirimLabel}`);
+    kirimPesan(`*PESANAN BARU ${idPesan}*\nOutlet: ${outlet.nama_outlet} (oleh ${pemesan})\n${ringkasan}\nBatch: ${batchLabel} | Rencana kirim: ${kirimLabel}`);
 
     res.json({ sukses: true, idPesan, batchMasuk: batchLabel, rencanaKirim: kirimLabel, pesan: `Pesanan ${idPesan} tercatat (BARU). Batch ${batchLabel}, rencana kirim ${kirimLabel}.` });
   } catch (err) {
@@ -1020,19 +1183,21 @@ app.post('/api/pesanan/:id/keputusan', async (req, res) => {
     if (String(pesanan.status).trim() !== 'BARU') {
       return res.status(409).json({ sukses: false, pesan: `Status ${pesanan.status}, keputusan hanya untuk BARU.` });
     }
-    const { items, alasanUmum } = req.body;
+    const { items } = req.body;
     let lama = pesanan.items_json;
     if (typeof lama === 'string') { try { lama = JSON.parse(lama || '[]'); } catch { lama = []; } }
     if (!Array.isArray(lama)) lama = [];
     if (!Array.isArray(items) || items.length !== lama.length) {
       return res.status(400).json({ sukses: false, pesan: 'Keputusan harus mencakup semua item pesanan.' });
     }
-    const setLama = new Set(lama.map(it => String(it.id)));
-    if (!items.every(it => setLama.has(String(it.id)))) {
+    // Cocokkan by POSISI (ID bisa kembar: '-', duplikat migrasi). Syarat: multiset ID sama
+    // (diurutkan) agar urutan tertukar tertolak, bukan salah pasang.
+    const kunci = (arr) => arr.map(it => String(it.id)).sort().join('|');
+    if (kunci(items) !== kunci(lama)) {
       return res.status(400).json({ sukses: false, pesan: 'ID item keputusan tidak cocok dengan pesanan.' });
     }
-    const putus = lama.map(asli => {
-      const k = items.find(x => String(x.id) === String(asli.id));
+    const putus = lama.map((asli, idx) => {
+      const k = items[idx];
       const kep = String(k.keputusan || '').trim().toUpperCase();
       if (!['PENUHI', 'TOLAK'].includes(kep)) throw new Error(`Item "${asli.nama}": keputusan harus PENUHI/TOLAK.`);
       const keterangan = String(k.keterangan || '').trim();
@@ -1040,10 +1205,7 @@ app.post('/api/pesanan/:id/keputusan', async (req, res) => {
       return { ...asli, keputusan: kep, qtyKirim: kep === 'PENUHI' ? Number(asli.qtyPesan) : 0, keterangan };
     });
     const penuhi = putus.filter(it => it.keputusan === 'PENUHI');
-    const alasan = String(alasanUmum || '').trim();
-    if (penuhi.length === 0 && !alasan) {
-      return res.status(400).json({ sukses: false, pesan: 'Alasan umum wajib bila semua item ditolak.' });
-    }
+    // ponytail: tanpa alasan umum — tiap TOLAK wajib keterangan per item (cukup sebagai alasan)
 
     let idKirim = null;
     let status;
@@ -1056,8 +1218,8 @@ app.post('/api/pesanan/:id/keputusan', async (req, res) => {
       for (const it of penuhi) {
         const b = ref.find(x => String(x.id_barang).trim() === String(it.id).trim());
         if (!b) return res.status(400).json({ sukses: false, pesan: `ID ${it.id} tidak dikenal.` });
-        if (Number(it.qtyKirim) > Number(b.jumlah_stock)) {
-          return res.status(400).json({ sukses: false, pesan: `Stock ${b.nama_barang} kurang (minta ${it.qtyKirim}, sisa ${b.jumlah_stock}).` });
+        if (Number(it.qtyKirim) > Number(b.total)) {
+          return res.status(400).json({ sukses: false, pesan: `Stock ${b.nama_barang} kurang (minta ${it.qtyKirim}, sisa ${b.total}).` });
         }
       }
       const hasil = await buatPengiriman(
@@ -1073,9 +1235,8 @@ app.post('/api/pesanan/:id/keputusan', async (req, res) => {
       ...pesanan,
       items_json: putus,
       ringkasan: buatRingkasan(putus.map(it => ({ nama: it.nama, qtyPesan: it.qtyPesan, keputusan: it.keputusan, keterangan: it.keterangan }))),
-      alasan_tolak: status === 'DITOLAK' ? alasan : '',
       status,
-      riwayat_status: tambahRiwayat(pesanan.riwayat_status, status === 'DITOLAK' ? `Ditolak semua: ${alasan}` : `Diputus ${status}${idKirim ? ` (${idKirim})` : ''}`),
+      riwayat_status: tambahRiwayat(pesanan.riwayat_status, status === 'DITOLAK' ? 'Ditolak semua (lihat keterangan per item)' : `Diputus ${status}${idKirim ? ` (${idKirim})` : ''}`),
     });
 
     res.json({ sukses: true, status, idKirim, pesan: status === 'DITOLAK' ? `Pesanan ${pesanan.id_pesan} DITOLAK.` : `Pesanan ${pesanan.id_pesan} ${status}, pengiriman ${idKirim} SIAP KIRIM.` });
@@ -1093,15 +1254,12 @@ function tokenOutletBaru() {
 // Link lama mati otomatis (lookup by token); tanpa auth tambahan (konsisten: tanpa login).
 app.post('/api/outlet/:slug/reset-link', async (req, res) => {
   try {
-    if (!butuhSheetOutlet(res)) return;
-    const rows = await sheetOutlet.getRows();
     const target = String(req.params.slug || '').trim().toLowerCase();
-    const row = rows.find(r => String(r.get('Slug') || '').trim().toLowerCase() === target);
-    if (!row) return res.status(404).json({ sukses: false, pesan: 'Slug outlet tidak ditemukan.' });
     const token = tokenOutletBaru();
-    row.set('Token', token);
-    await row.save();
-    const slug = row.get('Slug');
+    const up = await sb.from('outlet').update({ token }).eq('slug', target).select('slug');
+    if (up.error) throw new Error(up.error.message);
+    if (!up.data || up.data.length === 0) return res.status(404).json({ sukses: false, pesan: 'Slug outlet tidak ditemukan.' });
+    const slug = up.data[0].slug;
     res.json({ sukses: true, slug, token, link: `/pesan/${slug}-${token}`, pesan: `Link baru ${slug} aktif. Link lama mati.` });
   } catch (err) {
     console.error(err);
@@ -1112,13 +1270,13 @@ app.post('/api/outlet/:slug/reset-link', async (req, res) => {
 // Gudang-internal (konsisten: /api/pengiriman pun memuat token). Dipakai dropdown Tab Buat + Kelola Link.
 app.get('/api/outlet', async (req, res) => {
   try {
-    if (!butuhSheetOutlet(res)) return;
-    const rows = await sheetOutlet.getRows();
-    res.json(rows.map(r => ({
-      slug: r.get('Slug'),
-      outlet: r.get('Outlet'),
-      token: r.get('Token') || '',
-      link: `/pesan/${r.get('Slug')}-${r.get('Token') || ''}`,
+    const r = await sb.from('outlet').select('*').order('nama_outlet', { ascending: true });
+    if (r.error) throw new Error(r.error.message);
+    res.json(r.data.map(o => ({
+      slug: o.slug,
+      outlet: o.nama_outlet,
+      token: o.token || '',
+      link: `/pesan/${o.slug}-${o.token || ''}`,
     })));
   } catch (err) {
     console.error(err);
@@ -1162,11 +1320,23 @@ if (require.main === module && process.argv.includes('--self-check')) {
   ]));
   console.log('RingkasanKirim:', buatRingkasanKirim([{ nama: 'Pasta', qtyKirim: '10 -> 9' }]));
   console.log('Alasan:', buatAlasan([{ nama: 'Pasta', keterangan: '1 nya tidak ada didalam kardus' }]));
+  const avgKasus = [
+    // [label, avgLama, totalLama, totalBayar, qtyMasuk, expAvg]
+    ['baru 10pcs@50rb', null, 0, 500000, 10, 50000],
+    ['tambah 10pcs@65rb', 50000, 10, 650000, 10, 57500],
+    ['tanpa bayar', 57500, 20, null, 5, null],
+  ];
+  for (const [label, a, t, b, q, exp] of avgKasus) {
+    const hasil = hitungAvg(a, t, b, q);
+    const ok = hasil === exp;
+    if (!ok) gagal++;
+    console.log(`${ok ? 'OK  ' : 'FAIL'} avg ${label} -> ${hasil} (exp ${exp})`);
+  }
   process.exit(gagal ? 1 : 0);
 }
 
-// Jalankan server setelah Supabase + tab Outlet siap
-Promise.all([initDb(), initOutlet()])
+// Jalankan server setelah Supabase siap (5 tabel)
+initDb()
   .then(() => {
     app.listen(PORT, () => {
       console.log(`Server jalan di http://localhost:${PORT}`);

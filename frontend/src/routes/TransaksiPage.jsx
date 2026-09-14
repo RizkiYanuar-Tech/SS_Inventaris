@@ -42,7 +42,7 @@ export default function TransaksiPage(){
     if (error) return <p className='text-center py-5'>Terjadi Kesalahan: {error}</p>
 
     return (
-        <Container className='py-4'>
+        <Container className='py-4 hub-lebar'>
             <h2 className='mb-4 fw-bold'>Riwayat Transaksi</h2>
             <SearchBar search={search} onSearchChange={setSearch} />
         

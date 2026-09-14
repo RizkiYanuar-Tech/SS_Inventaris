@@ -4,7 +4,7 @@ import FastMovingTable from  '../components/homepage/FastMovingTable'
 import SummaryCard from '../components/homepage/SummaryCard'
 import TrendChart from '../components/homepage/TrendChart'
 import WeekFilter from '../components/homepage/WeekFilter'
-import { Package, TriangleAlert, CircleArrowDown, CircleArrowUp} from 'lucide-react'
+import { Package, TriangleAlert, CircleArrowDown, CircleArrowUp, Banknote} from 'lucide-react'
 import { useMemo, useState} from 'react'
 import { parseTimestamp, isSameDay, getMondayOf, addDays} from '../utils/dateParse';
 import RefreshButton from '../components/layout/RefreshButton'
@@ -25,7 +25,19 @@ export default function HomePage(){
     const isLoading = loadingBarang || loadingTransaksi
 
     const totalBarang = barang.length
-    const lowStockCount = barang.filter((b) => b.stock < b.threshold).length
+    const lowStockCount = barang.filter((b) => b.stock <= b.threshold && b.stock > 0).length
+    const emptyStockCount = barang.filter((b) => b.stock === 0).length
+
+    // Total Aset Inventory (moving-average): Σ stock × harga_barang, tanpa item belum berhHarga.
+    const { totalAset, belumHarga } = useMemo(() => {
+        let total = 0, belum = 0
+        for (const b of barang) {
+            if (b.hargaBarang == null) { belum++; continue }
+            total += (Number(b.stock) || 0) * Number(b.hargaBarang)
+        }
+        return { totalAset: total, belumHarga: belum }
+    }, [barang])
+    const totalAsetRp = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(totalAset)
 
     const transaksiHariIni = useMemo(() => {
         return transaksi.filter((t) => {
@@ -102,7 +114,7 @@ export default function HomePage(){
     }
 
     return (
-        <Container className="py-4" style={{ maxWidth: '480px' }}>
+        <Container className="py-4 hub-lebar">
             <div className="d-flex align-items-center justify-content-between mb-4">
                 <div>
                     <h1 className="h4 fw-bold text-dark mb-0">Dashboard</h1>
@@ -123,16 +135,22 @@ export default function HomePage(){
             ) : (
                 <>
                     <Row className="g-3 mb-4">
-                        <Col xs={6}>
+                        <Col xs={6} md={4}>
                             <SummaryCard icon={Package} iconColor='#2563eb' label='Jumlah Barang' value={totalBarang}/>
                         </Col>
-                        <Col xs={6}>
-                            <SummaryCard icon={TriangleAlert} iconColor='#f70505' label='Low Stock' value={lowStockCount}/>
+                        <Col xs={6} md={4}>
+                            <SummaryCard icon={Banknote} iconColor='#16a34a' label='Total Aset Inventory' value={totalAsetRp} unit={belumHarga > 0 ? `${belumHarga} item belum ada harga` : null} />
                         </Col>
-                        <Col xs={6}>
+                        <Col xs={6} md={4}>
+                            <SummaryCard icon={TriangleAlert} iconColor='#f70505' label='Stock Habis' value={emptyStockCount} unit="barang habis" rel='#dc3545'/>
+                        </Col>
+                        <Col xs={6} md={4}>
+                            <SummaryCard icon={TriangleAlert} iconColor='#ffc107' label='Stock Menipis' value={lowStockCount} unit='barang menipis' rel='#ffc107'/>
+                        </Col>
+                        <Col xs={6} md={4}>
                             <SummaryCard icon={CircleArrowUp} iconColor='#7c3aed' label='Barang Keluar' value={keluarHariIni} unit="Hari Ini" />
                         </Col>
-                        <Col xs={6}>
+                        <Col xs={6} md={4}>
                             <SummaryCard icon={CircleArrowDown} iconColor='#00f000' label='Barang Masuk' value={masukHariIni} unit="Hari Ini" />
                         </Col>
                     </Row>

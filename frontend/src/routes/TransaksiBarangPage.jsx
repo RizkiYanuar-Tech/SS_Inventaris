@@ -15,23 +15,23 @@ export default function TransaksiBarangPage(){
     function closeModal(){
         const sukses = modal.sukses;
         setModal(m => ({ ...m, show: false }));
-        if (sukses) navigate('/scan');
+        if (sukses) navigate('/input');
     }
 
     if (!dataBarang) {
         return (
             <Container className="py-5 text-center" style={{ maxWidth: '480px'}}>
                 <p className="mb-4">
-                    Data barang tidak ditemukan. Silakan lakukan scan terlebih dahulu.
+                    Data barang tidak ditemukan. Silakan cari dari halaman Input.
                 </p>
-                <Button variant="secondary" onClick={() => navigate('/scan')}>
-                    Kembali ke Halaman Scan
+                <Button variant="secondary" onClick={() => navigate('/input')}>
+                    Kembali ke Halaman Input
                 </Button>
             </Container>
         );
     }
 
-    async function handleSubmit(jenis, jumlah, satuanInput){
+    async function handleSubmit(jenis, jumlah, satuanInput, totalBayar){
         setStatus({type: 'info', text: 'Memproses transaksi...'});
 
         try{
@@ -39,7 +39,8 @@ export default function TransaksiBarangPage(){
                 id: dataBarang.id,
                 jenis,
                 jumlah,
-                satuanInput
+                satuanInput,
+                totalBayar
             });
 
             if (result && result.sukses){
@@ -75,7 +76,7 @@ export default function TransaksiBarangPage(){
             <Button 
                 variant="outline-secondary" 
                 className="w-100 mt-2" 
-                onClick={() => navigate('/scan')}
+                onClick={() => navigate('/input')}
             >
                 Batal & Kembali
             </Button>

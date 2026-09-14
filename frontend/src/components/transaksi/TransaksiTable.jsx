@@ -7,7 +7,7 @@ export default function TransaksiTable({ items }) {
     }
     
     return (
-        <div>
+        <div className='hub-grid'>
             {items.map((item, index) => {
                 const isMasuk = item.jenis === "Masuk";
                 const Icon = isMasuk ? CircleArrowDown : CircleArrowUp;

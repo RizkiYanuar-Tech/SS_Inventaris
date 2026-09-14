@@ -1,7 +1,7 @@
-import { Routes, Route, useLocation } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import HomePage from './routes/HomePage'
 import StockPage from './routes/StockPage'
-import ScanPage from './routes/ScanPage'
+import InputManualPage from './routes/InputManualPage'
 import TransaksiPage from './routes/TransaksiPage'
 import TransaksiBarangPage from './routes/TransaksiBarangPage'
 import TambahBarangPage from './routes/TambahBarangPage'
@@ -17,6 +17,12 @@ const sembunyiNav = (pathname) =>
   pathname === '/terima' || pathname.startsWith('/terima/') ||
   pathname === '/pesan' || pathname.startsWith('/pesan/');
 
+// /scan dialihkan ke /input (bawa state verifikasi bila ada). File ScanPage tetap di disk.
+function PengalihScan() {
+    const { state } = useLocation();
+    return <Navigate to='/input' state={state} replace />;
+}
+
 function App() {
   const { pathname } = useLocation();
   const tanpaNav = sembunyiNav(pathname);
@@ -27,7 +33,8 @@ function App() {
         <Route path='/' element={<HomePage />}></Route>
         <Route path='/inventory' element={<StockPage />}></Route>
         <Route path='/history' element={<TransaksiPage />}></Route>
-        <Route path='/scan' element={<ScanPage />}></Route>
+        <Route path='/input' element={<InputManualPage />}></Route>
+        <Route path='/scan' element={<PengalihScan />}></Route>
         <Route path='/tambah-barang' element={<TambahBarangPage />}></Route>
         <Route path='/transaksi-barang' element={<TransaksiBarangPage />}></Route>
         <Route path='/pesanan' element={<DaftarPengirimanPage />}></Route>

@@ -1,9 +1,7 @@
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
 
-// Lapisan akses Supabase (cutover REST dari Google Sheets).
-// Kontrak: backend bicara ke sini; endpoint + frontend tidak berubah.
-// Outlet tetap live di Google Sheets (pengecualian sadar) — bukan via modul ini.
+// Lapisan akses Supabase (5 tabel). Kontrak: backend bicara ke sini.
 function ambilEnv(...nama) {
   for (const n of nama) {
     const v = process.env[n];
@@ -20,29 +18,20 @@ const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const nowIso = () => new Date().toISOString();
 
-// id_transaksi tanpa default di DB -> max+1 sisi app (ceiling sama seperti NNN harian)
-async function nextIdTransaksi() {
-  const { data, error } = await sb.from('transaksi')
-    .select('id_transaksi').order('id_transaksi', { ascending: false }).limit(1);
-  if (error) throw new Error('nextIdTransaksi: ' + error.message);
-  const max = data && data[0] ? Number(data[0].id_transaksi) : 0;
-  return (Number.isFinite(max) ? max : 0) + 1;
-}
-
 // Kurang stock atomik: tulis hanya bila stock >= qty (anti oversell saat 2 approve balapan)
 async function kurangStock(idBarang, qty) {
   const cur = await sb.from('barang_inventory')
-    .select('jumlah_stock').eq('id_barang', idBarang).single();
+    .select('total').eq('id_barang', idBarang).single();
   if (cur.error || !cur.data) throw new Error(`ID ${idBarang} tidak ditemukan di database.`);
-  const sisa = Number(cur.data.jumlah_stock);
+  const sisa = Number(cur.data.total);
   if (qty > sisa) return { ok: false, sisa };
   const up = await sb.from('barang_inventory')
-    .update({ jumlah_stock: sisa - qty })
-    .eq('id_barang', idBarang).gte('jumlah_stock', qty)
-    .select('jumlah_stock');
+    .update({ total: sisa - qty })
+    .eq('id_barang', idBarang).gte('total', qty)
+    .select('total');
   if (up.error) throw new Error(up.error.message);
   if (!up.data || up.data.length === 0) return { ok: false, sisa: null }; // kalah balapan
-  return { ok: true, sisa: Number(up.data[0].jumlah_stock) };
+  return { ok: true, sisa: Number(up.data[0].total) };
 }
 
-module.exports = { sb, nowIso, nextIdTransaksi, kurangStock };
+module.exports = { sb, nowIso, kurangStock };
