@@ -2,3 +2,14 @@ body {
   background-color: #f3f4f6;
   font-family: -apple-system, Roboto, Arial, sans-serif;
 }
+
+@keyframes putar360 {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.putar {
+  animation: putar360 0.9s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .putar { animation: none; }
+}

@@ -5,7 +5,7 @@ import { Home, History, Package, PackagePlus, ClipboardList } from 'lucide-react
 import { fetchPesanan } from '../../api/client';
 
 const navItems = [
-    {to: '/', label: "Home", icon: Home, end: true},
+    {to: '/homepage', label: "Home", icon: Home, end: true},
     {to: '/inventory', label: "Inventory", icon: Package},
     {to: '/pesanan', label: "Pesanan", icon: ClipboardList},
     {to: '/history', label: "History", icon: History},
@@ -17,9 +17,14 @@ export default function BottomNav() {
     const [baru, setBaru] = useState(0);
 
     useEffect(() => {
+        // Tanpa flag sesi: jangan tembak API yang pasti 401 (hindari console merah).
+        if (!sessionStorage.getItem('gudang-masuk')) { setBaru(0); return; }
         fetchPesanan()
             .then(rows => setBaru(rows.filter(r => String(r.status).trim() === 'BARU').length))
-            .catch(() => {});
+            .catch(e => {
+                if (/login gudang/i.test(e.message || '')) sessionStorage.removeItem('gudang-masuk');
+                setBaru(0);
+            });
     }, [pathname]);
 
     return (

@@ -17,14 +17,6 @@ export async function fetchTransaksi() {
     return res.json()
 }
 
-export async function cekBarang(id) {
-    const res = await fetch(`${BASE_URL}/cekBarang/${encodeURIComponent(id)}`)
-    if (!res.ok){
-        throw new Error("Gagal memeriksa barang di database")
-    }
-    return res.json()
-}
-
 export async function tambahBarangBaru(payload) {
     try {
         const res = await fetch(`${BASE_URL}/tambahBarangBaru`,{
@@ -76,15 +68,6 @@ async function handleRes(res, pesanGagal) {
     if (!res.ok) throw new Error(data.pesan || data.error || pesanGagal);
     if (data.sukses === false) throw new Error(data.pesan || pesanGagal);
     return data;
-}
-
-export async function buatPengiriman(payload) {
-    const res = await fetch(`${BASE_URL}/pengiriman`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload)
-    });
-    return handleRes(res, 'Gagal membuat pengiriman');
 }
 
 export async function fetchPengiriman() {
@@ -146,6 +129,49 @@ export async function resetLinkOutlet(slug) {
 export async function fetchOutlet() {
     const res = await fetch(`${BASE_URL}/outlet`);
     return handleRes(res, 'Gagal mengambil data outlet');
+}
+
+export async function masukGudang(password) {
+    const res = await fetch(`${BASE_URL}/gudang/masuk`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ password })
+    });
+    return handleRes(res, 'Gagal masuk');
+}
+
+export async function sesiGudang() {
+    const res = await fetch(`${BASE_URL}/gudang/sesi`);
+    return handleRes(res, 'Belum masuk');
+}
+
+export async function keluarGudang() {
+    const res = await fetch(`${BASE_URL}/gudang/keluar`, { method: 'POST' });
+    return handleRes(res, 'Gagal keluar');
+}
+
+export async function setPasswordGudang(password, konfirmasi) {
+    const res = await fetch(`${BASE_URL}/gudang/password`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ password, konfirmasi })
+    });
+    return handleRes(res, 'Gagal mengganti password');
+}
+
+export async function fetchNotifikasi() {
+    const res = await fetch(`${BASE_URL}/notifikasi`);
+    return handleRes(res, 'Gagal mengambil notifikasi');
+}
+
+export async function bacaNotifikasi() {
+    const res = await fetch(`${BASE_URL}/notifikasi/baca`, { method: 'POST' });
+    return handleRes(res, 'Gagal menandai dibaca');
+}
+
+export async function lihatSuratJalan(idKirim) {
+    const res = await fetch(`${BASE_URL}/surat-jalan/${encodeURIComponent(idKirim)}`);
+    return handleRes(res, 'Gagal mengambil surat jalan');
 }
 
 export async function lihatPengiriman(token) {

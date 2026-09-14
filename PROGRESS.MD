@@ -4,19 +4,45 @@
 
 ## Keputusan terkunci (ringkas; detail di PRD.MD)
 - 1 aplikasi 2 permukaan; Supabase 5 tabel (isolasi outlet via filter token di API).
-- Link permanen `/pesan/<slug>-<token8>` (token = identitas + WAJIB login password; `/terima/<token>` tetap link-only) + sesi opaque 24 jam di memori (bukan JWT; restart = logout ulang, password tetap) + scrypt + rate-limit 10/mnt + password di-set gudang ketik 2× (NULL = ditolak).
+- Link permanen `/pesan/<slug>-<token8>` (token = identitas + WAJIB login password; `/terima/<token>` tetap link-only) + sesi opaque 24 jam di memori (bukan JWT; restart = logout ulang, password tetap) + scrypt + rate-limit 10/mnt + kolom `password` (teks scrypt, NULL = buat-pertama via link).
+- Hybrid 2026-09-14 (revisi: tabel `gudang` id=1, UPDATE-only; skema aktual `password_gudang` + `created_at`): outlet self-set pertama-kali (NULL + link valid → buat 1×, lalu login; gudang set-ulang via Tab Lainnya hub). Gudang 1 kredensial bersama (2 orang) di tabel `gudang` (`id` selalu 1 | `password_gudang` scrypt | `created_at`; seed via SQL developer, app hanya UPDATE id=1, tanpa INSERT); gate penuh semua halaman + endpoint gudang (tahap 2 terserap) + kill-switch `GUDANG_GATE=off`; login sekali → semua tab; mendarat `/homepage`/tujuan.
 - Slot Senin & Kamis, cutoff 15:00 WIB; `hitungSlot()` + self-check.
 - Status: BARU → DISETUJUI / DISETUJUI SEBAGIAN / DITOLAK (terminal) → SIAP KIRIM → DIKIRIM → DITERIMA / DITERIMA SEBAGIAN.
 - Approve per item (Penuhi / Tolak + keterangan manual); item ditolak hangus, tanpa backorder.
-- Record pengiriman lahir OTOMATIS + atomik saat approve; TIDAK ada tombol buat-manual. `/kirim` = Kirim Susulan/Non-Pesanan (susulan kurang, tukar varian, titipan).
+- Record pengiriman lahir OTOMATIS + atomik saat approve; TIDAK ada tombol buat-manual. Fitur susulan `/kirim` DICABUT 2026-09-14 (tak dipakai; arsip lama tetap di Lacak).
 - `Tandai Dikirim` manual → token lahir; `Batalkan` hanya pre-laporan + alasan wajib + link lama mati.
 - Terima: ceklis per baris, 1 tombol `Kirim Laporan Terima`, gudang read-only (surat jalan).
 - Katalog outlet TANPA stock. Items JSON (mesin) + Ringkasan (manusia) + Alasan (Pengiriman saja, per-item).
-- 1 pesanan aktif per token (blokir total: link outlet + Tab Buat gudang → 409; lepas saat terminal). Outlet tanpa tombol batal (SOP: minta via WA → gudang Tolak semua + Alasan Tolak). WA otomatis ke admin saja (pesanan baru + laporan terima + link lahir); link ke outlet = share manual. Tab `Outlet` (`Slug|Token|Outlet`, tanpa WA).
-- BottomNav 5 item (badge BARU = T2). Outlet 2 tab (Pesan Baru | Riwayat) = T2.
+- Loket pesan < 15:00 WIB tiap hari (tutup → 403 pesan persis); multi-pesan gabung ke BARU sehati (ID sama, `digabung: true`; hanya BARU). Outlet tanpa tombol batal (SOP: hubungi gudang → gudang Tolak semua + keterangan). Fonnte DICABUT 2026-09-14; notif gudang = lonceng dalam-web (BARU/gabung/lapor + suara); link ke outlet = share manual (Salin/modal/`wa.me` HP).
+- BottomNav 5 item (Home→`/homepage`, badge BARU skip-fetch saat logout). Hub 3 tab (Daftar/Lacak/Lainnya); Daftar = tab alur + FIFO antrean. Outlet 3 tab (Pesan Baru | Riwayat | Surat Jalan).
+- Surat jalan cetak (F8, format spreadsheet + kolom Checklist Outlet): judul ikut outlet, A4 landscape, harga moving-average × qty, tombol print manual, endpoint baca `GET /api/surat-jalan/:idKirim`.
 
 ## Status eksekusi (2026-09-08)
-- [ ] Login outlet (rencana disetujui 2026-09-13, BELUM eksekusi) — `password_hash` + `POST …/masuk` + sesi cookie + gate GET/POST + endpoint gudang Tab Buat + set-password di hub + rate-limit; SQL oleh user; acceptance PRD §11 baru.
+- [ ] Login outlet (rencana disetujui 2026-09-13 + hybrid 2026-09-14, BELUM eksekusi) — kolom `password` (sudah dibuat user) + `POST …/masuk` + `POST …/password-awal` (1× saat NULL) + sesi cookie + gate GET/POST + set-ulang di hub + rate-limit; acceptance PRD §11 baru.
+- [x] 2026-09-14 Login gudang (SELESAI + uji masuk lolos oleh user) — scrypt + sesi opaque `sesi_gudang` 24 jam + rate-limit 10/mnt + `POST /api/gudang/masuk|keluar` + `GET /api/gudang/sesi` + `POST /api/gudang/password` (UPDATE id=1, selalu wajib sesi; toggle mata di form login + ganti) + gate penuh (tahap 2 terserap) + `GUDANG_GATE=off` + route `/gudang-masuk` (tanpa nav) + `RequireGudang` semua route gudang + tombol Keluar di homepage (outline-danger + ikon + confirm) + flag sesi `sessionStorage('gudang-masuk')` (BottomNav skip-fetch saat logout, console bersih). File: `server.js`, `client.js`, `GudangMasukPage.jsx`, `RequireGudang.jsx`, `App.jsx`, `DaftarPengirimanPage.jsx`, `HomePage.jsx`, `BottomNav.jsx`, `migrasi_gudang.sql`. Forensik denied: skema aktual `password_gudang` + grant `service_role`. U38 lolos.
+- [x] 2026-09-14 F8 surat jalan cetak (kode SELESAI; UAT lembar oleh user) — `GET /api/surat-jalan/:idKirim` (baca-saja, satuan+harga dari master, tanggal DD/MM/YYYY, barang-hilang tetap cetak) + route `/surat-jalan/:idKirim` + tombol Print Daftar+Lacak + CSS print A4 landscape. Live: tanpa sesi 401. Self-check 0 FAIL + build OK.
+- [x] 2026-09-14 Cetak gate DIKIRIM + baris coret — SIAP KIRIM → tombol hilang + endpoint 409; line TOLAK tercetak urutan pesanan (nama+qty coret, harga/total `-`, total abaikan) + footnote. Self-check + build OK; isi UAT sesi asli oleh user.
+- [x] 2026-09-14 Kirim parsial + note manual — `keputusan` terima `qtyKirim` (< pesan + ket wajib; stock vs kirim; parsial → SEBAGIAN; ringkasan `→ kirim`); `PutusForm` input qty + ket kondisional. Self-check + build OK; happy-path produksi UAT user.
+- [x] 2026-09-14 Cabut route mati `/tambah-barang` — me-render komponen salah (`TransaksiBarangPage`, bug copy-paste; satu-satunya perujuk = `ScanPage` mati); fungsi tambah-baru sudah dicover `/input`. File dibiarkan di disk, import yatim dibuang. Build OK.
+- [x] 2026-09-14 Cabut total scan (cabut keputusan lama "file scanner dilarang dihapus") — hapus `ScanPage` + `VerifikasiKirim` + `QrScanner` + `ConfirmCard` + `useScanner` + route `/scan` + `cekBarang` client + endpoint + dep `html5-qrcode`; `Form*`/`ManualVerifikasiKirim` tetap (dipakai `/input`). Self-check + build OK.
+- [x] 2026-09-14 Cabut Fonnte (pengirimnya saja; cek stock + sampling acak + kartu homepage tetap) — hapus `kirimPesan()` + endpoint `/api/sendMessage` + ENV; 4 titik peristiwa + reminder + sampling jadi `console.log` (jejak sementara sampai lonceng jadi). Self-check OK.
+- [x] 2026-09-14 Lonceng gudang + suara (F6) — tabel `notifikasi` + tulis di BARU/DIGABUNG/LAPORAN + 2 endpoint + `LoncengGudang` (badge/dropdown/baca; Home + hub) + bunyi naik-saja + getar + toggle. Self-check + build OK; SQL + U42 dengar-lihat oleh user.
+- [x] 2026-09-14 Poll hub 20 dtk — interval Daftar+Lacak + guard anti-tumpuk + fetch saat visible + ganti tab; outlet tetap 30 dtk. Build OK.
+- [x] 2026-09-14 Tombol Refresh + outlet — `RefreshButton` pil berlabel (spin keyframe sendiri, hover/tekan biru state-driven lalu disederhanakan jadi `outline-primary` kembaran Keluar); dipakai homepage + outlet (tombol manual di header outlet, fetch penuh). Build OK.
+- [x] 2026-09-14 Route `/homepage` + redirect `/` (edit user + 1 baris redirect saya) — BottomNav Home → `/homepage`; link root lama tetap hidup. Build OK.
+- [x] 2026-09-14 TransaksiTable anti-tabrakan — header kartu wrap + tanggal kembali `small` (11px terbukti kekecilan). Build OK.
+- [x] 2026-09-14 FastMovingTable bar arus — `<td>` filler + lebar kaku dibuang; kolom kanan = bar proporsi Masuk/Keluar + total. Build OK.
+- [x] 2026-09-14 Keranjang outlet di atas search — urutan keranjang → search statis → kategori sticky `top:64`. Build OK.
+- [x] 2026-09-14 Redesign kartu Daftar hub — dinding-teks ringkasan diganti chip `✓ N dipenuhi`/`✕ M ditolak` + list penuhi ringkas + tolak diciutkan; tanggal ganda Batch≈Pesan disatukan. Build OK.
+- [x] 2026-09-14 Tab alur hub ganti dropdown (FIFO) — Baru/Siap Kirim/Dikirim/Selesai/Semua + badge + search; antrean FIFO tertua-di-atas (via `dibuatPada` baru di API), arsip terbaru; default tab Baru. Self-check + build OK, live `dibuatPada` ada.
+- [x] 2026-09-14 Rapi kartu Daftar — grup 1 baris tampil langsung (tanpa toggle), list penuhi ambang 4 + expander, meta tanggal 2 baris, tombol tutup di paling bawah list terbuka, toggle biru tegas. Build OK.
+- [x] 2026-09-14 Tab Lainnya hub — Kelola Link + Password Gudang pindah dari Daftar (Daftar steril operasional). Build OK.
+- [x] 2026-09-14 Gate penuh gudang (tahap 2 terserap): `wajibGudang` di semua endpoint gudang baca+tulis (jalur outlet tetap publik) + `sesi` bypass saat gate off + `RequireGudang` di semua route gudang + login mendarat `/homepage`/tujuan. Self-check + build OK.
+- [ ] Pecah `server.js` (~1600 baris → 10 file; diputuskan 2026-09-14, BELUM eksekusi) — peta: `server.js` setup + `lib/waktu|ringkas|konversi|auth|data` + `routes/barang|pengiriman|pesan|gudang`; potong-pindah murni + urutan middleware persis + singleton 1 instance; strategi paralel (`server2.js` + matriks diferensial `:3000` vs `:3100`, rollback 1 perintah); syarat: fokus 1 sesi, sebelum login outlet.
+- [x] 2026-09-14 Loket 15:00 + gabung sehati + cabut Tab Buat (ganti P1b 1-aktif) — `pesanDibuka()` (<15:00 WIB tiap hari; tutup → 403 + kartu info pesan persis); multi-pesan gabung ke BARU sehati (se-ID dijumlah, `digabung: true`, lonceng DIGABUNG; hanya BARU); Tab Buat + `BuatForm` + F2 dicabut (hub = Daftar/Lacak/Lainnya). Self-check 10/10 + build OK.
+- [x] 2026-09-14 Cabut total Kirim Susulan (F2b, tak dipakai) — tombol `+ Kirim` + route `/kirim` + file `BuatPengirimanPage.jsx` + endpoint `POST /api/pengiriman` + `buatPengiriman()` client dihapus; fungsi internal server tetap (dipakai approve). Arsip susulan lama tetap di Lacak; susulan baru kembali manual di luar sistem.
+- [x] 2026-09-14 Forensik PSN-20260914-004: DITERIMA benar (paket hanya 1 item penuhi, 2 ditolak tak ikut paket; SEBAGIAN = kirim-vs-terima, bukan pesan-vs-terima).
+- [~] 2026-09-14 Info "N dari M item" di surat jalan — DIBATALKAN atas permintaan user (terlalu banyak info); kode di-revert bersih (nol diff), U37/E37 dicabut.
 - [x] Step 0.2 — `hitungSlot()`, `buatRingkasan()`, `formatTanggalSlot()`, `formatWaktuBukti()`, self-check 7/7 (`node server.js --self-check`). File: `server.js`.
 - [x] Perbaikan umum — timestamp `weekday + timeZoneName WIB` tanpa detik (`server.js`); `dateParse` detik opsional (filter/sort aman); popup `ResultModal` di Tambah/Transaksi Barang; pagination `TransaksiPage`; SPA fallback Express 5 (`/{*splat}`).
 - [x] T1 Kirim + Terima — backend: `buatIdKirim`, 6 endpoint pengiriman. Frontend: `client.js` +6 fn, `BottomNav` (+Pesanan, tanpa badge), `App.jsx` (route + nav kondisional), `DaftarPengirimanPage` (Daftar+Lacak), `BuatPengirimanPage`, `TerimaBarangPage`. Build OK.
@@ -70,7 +96,7 @@
 ## Hutang / bug diketahui
 - Chunk JS > 500 kB warning (pre-existing, abaikan).
 - Aturan: user edit manual kadang; eksekusi oleh AI hanya saat diminta eksplisit.
-- 2026-09-10: file scanner dilarang dihapus (keputusan user); TOTAL CSV tidak dipercaya sebagai stock akhir sampai user menjelaskan rumus/sumbernya.
+- 2026-09-10: file scanner dilarang dihapus (keputusan user — DICABUT 2026-09-14, kamera/scan dibuang total); TOTAL CSV tidak dipercaya sebagai stock akhir sampai user menjelaskan rumus/sumbernya.
 - [x] 2026-09-10 Cabut total_awal + total_pembanding — SO 12 Agu diselamatkan sebagai 188 baris saldo-pembuka di `transaksi` (237 nol dilewati); `total` satu-satunya sumber stock. SQL DROP oleh user.
 
 ## Cara lanjut sesi baru

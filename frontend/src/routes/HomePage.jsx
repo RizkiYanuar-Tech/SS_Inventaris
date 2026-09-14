@@ -4,13 +4,16 @@ import FastMovingTable from  '../components/homepage/FastMovingTable'
 import SummaryCard from '../components/homepage/SummaryCard'
 import TrendChart from '../components/homepage/TrendChart'
 import WeekFilter from '../components/homepage/WeekFilter'
-import { Package, TriangleAlert, CircleArrowDown, CircleArrowUp, Banknote} from 'lucide-react'
-import { useMemo, useState} from 'react'
+import { Package, TriangleAlert, CircleArrowDown, CircleArrowUp, Banknote, LogOut } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { parseTimestamp, isSameDay, getMondayOf, addDays} from '../utils/dateParse';
 import RefreshButton from '../components/layout/RefreshButton'
+import LoncengGudang from '../components/layout/LoncengGudang'
+import { keluarGudang, fetchNotifikasi } from '../api/client'
 
 // Import komponen React Bootstrap
-import { Container, Row, Col, Card } from 'react-bootstrap';
+import { Container, Row, Col, Card, Button } from 'react-bootstrap';
 
 const HARI = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu']
 
@@ -108,9 +111,24 @@ export default function HomePage(){
             .slice(0, 5)
     }, [transaksi])
 
+    const [notifikasi, setNotifikasi] = useState(null)
+    function muatNotifikasi() {
+        fetchNotifikasi().then(setNotifikasi).catch(() => {});
+    }
+    useEffect(() => { muatNotifikasi() }, [])
+
     const handleRefresh = () => {
         refreshBarang()
         refreshTransaksi()
+        muatNotifikasi()
+    }
+
+    const navigate = useNavigate()
+    async function handleKeluar() {
+        if (!window.confirm('Keluar dari sesi gudang?')) return
+        try { await keluarGudang() } catch { /* sesi sudah mati, tetap keluar */ }
+        sessionStorage.removeItem('gudang-masuk')
+        navigate('/gudang-masuk', { replace: true })
     }
 
     return (
@@ -127,7 +145,14 @@ export default function HomePage(){
                         })}
                     </p>
                 </div>
-                <RefreshButton onClick={handleRefresh} loading={isLoading} />
+                <span className='d-flex align-items-center gap-2'>
+                    <LoncengGudang data={notifikasi} onMuat={muatNotifikasi} />
+                    <Button variant='outline-danger' size='sm' onClick={handleKeluar}
+                        className='d-flex align-items-center gap-1 fw-semibold'>
+                        <LogOut size={16} /> Keluar
+                    </Button>
+                    <RefreshButton onClick={handleRefresh} loading={isLoading} />
+                </span>
             </div>
 
             {isLoading ? (

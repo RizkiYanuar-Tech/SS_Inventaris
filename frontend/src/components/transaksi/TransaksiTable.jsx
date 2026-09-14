@@ -22,15 +22,15 @@ export default function TransaksiTable({ items }) {
                         style={{ borderRadius: "12px" }}
                     >
                         <Card.Header
-                            className='d-flex justify-content-between align-items-center bg-white text-muted border-bottom-0 pt-3'
+                            className='d-flex justify-content-between align-items-center bg-white text-muted border-bottom-0 pt-3 flex-wrap gap-1'
                         >
-                            <div className='d-flex align-items-center'>
-                                <Icon size={18} color={iconColor} className='me-2' />
+                            <div className='d-flex align-items-center' style={{ minWidth: 0 }}>
+                                <Icon size={18} color={iconColor} className='me-2 flex-shrink-0' />
                                 <span className={`fw-semibold ${textColorClass}`}>
                                     {item.jenis}
                                 </span>
                             </div>
-                            <span className='small'>{item.timestamp}</span>
+                            <span className='small ms-auto text-end'>{item.timestamp}</span>
                         </Card.Header>
 
                         <Card.Body className='py-3'>

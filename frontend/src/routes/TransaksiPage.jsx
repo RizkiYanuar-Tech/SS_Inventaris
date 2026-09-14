@@ -36,7 +36,7 @@ export default function TransaksiPage(){
             return tglB - tglA
         })
     }, [items, search, startDate, endDate, jenis])
-    const {currentItems, currentPage, totalPages, nextPage, prevPage} = usePagination(filtered, 5)
+    const {currentItems, currentPage, totalPages, nextPage, prevPage} = usePagination(filtered, 6)
 
     if (loading) return <p className='text-center py-5'>Memuat History Gudang....</p>
     if (error) return <p className='text-center py-5'>Terjadi Kesalahan: {error}</p>

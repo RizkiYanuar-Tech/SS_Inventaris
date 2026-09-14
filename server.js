@@ -80,8 +80,14 @@ function formatWaktuBukti(date = new Date()) {
 function buatRingkasan(items) {
   return (items || []).map(it => {
     const nama = it.nama || it.id || '?';
-    const qty = it.qtyKirim ?? it.qtyPesan ?? it.jumlah ?? '?';
     const ket = it.keputusan || it.status || '';
+    const pesan = it.qtyPesan != null ? Number(it.qtyPesan) : null;
+    const kirim = it.qtyKirim != null ? Number(it.qtyKirim) : null;
+    // Parsial PENUHI: "Susu x10 → kirim 5 (kurang 5: ket)"
+    if (String(ket).toUpperCase() === 'PENUHI' && pesan != null && kirim != null && kirim < pesan) {
+      return `${nama} x${pesan} → kirim ${kirim} (kurang ${pesan - kirim}: ${it.keterangan || '-'})`;
+    }
+    const qty = it.qtyKirim ?? it.qtyPesan ?? it.jumlah ?? '?';
     const alasan = it.keterangan ? `: ${it.keterangan}` : '';
     return `${nama} x${qty} (${ket}${alasan})`;
   }).join('; ');
@@ -236,21 +242,21 @@ function hitungAvg(avgLama, totalLama, totalBayar, qtyMasuk) {
   return (nilaiLama + bayar) / (t + q);
 }
 
-async function cekThresholdDanKirimWA(id, nama, stockSekarang, threshold){
+// Cek ambang stock (jejak via log; lonceng dalam-web menyusul)
+async function cekThreshold(id, nama, stockSekarang, threshold){
   if (stockSekarang > threshold){
     return;
   } else if (stockSekarang <= threshold){
-    const pesan = 
+    console.log(
     `*REMINDER STOCK!*\n` +
     `ID: ${id}\n` +
     `Barang: ${nama}\n` +
     `Stock Sekarang: ${stockSekarang}\n\n` +
-    `*LAKUKAN RESTOCK SECEPATNYA!*`
-    
-    await kirimPesan(pesan);
+    `*LAKUKAN RESTOCK SECEPATNYA!*`);
   }
 }
 
+// Cek acak kesesuaian stock fisik (tanpa WA — jejak via log)
 async function RandomSamplingChecking(){
   const sampling_check = 0.1;
 
@@ -267,8 +273,7 @@ async function RandomSamplingChecking(){
       pesan += `- Nama Barang: ${row.nama_barang} \n Jumlah Stock: ${row.total} \n`;
     });
 
-    await kirimPesan(pesan);
-    console.log('Random Sampling reminder terkirim.')
+    console.log(pesan);
   } catch (err){
     console.error(`Random Sampling reminder gagal terkirim, ${err}`);
   }
@@ -299,69 +304,7 @@ function scheduleRandomSampling(){
   }, selisihMs)
 }
 
-//Function set Fonnte
-async function kirimPesan(pesan){
-  const token = process.env.FONNTE_TOKEN;
-  const target = process.env.TARGET_NUMBER;
-  
-  if(!token || !target){
-    console.error("Token dan Nomor Target Belum disimpan!");
-    return;
-  }
-
-  try{
-    const res = await fetch('https://api.fonnte.com/send', {
-      method:'POST',
-      headers: {
-        Authorization: token,
-        'Content-Type': 'application/x-www-form-urlencoded'
-      },
-      body: new URLSearchParams({
-        target, 
-        message: pesan
-      })
-    });
-    const hasil = await res.json();
-    console.log('Fonnte response', hasil);
-  }catch(err){
-    console.log(`Gagal mengirim pesan ke WA ${err.message}`);
-  }
-}
-
-// Cek apakah ID barang sudah ada
-app.get('/api/cekBarang/:id', async (req, res) => {
-  try {
-    const id = req.params.id.trim();
-    const r = await sb.from('barang_inventory').select('*').eq('id_barang', id).maybeSingle();
-    if (r.error) throw new Error(r.error.message);
-    const row = r.data;
-
-    if (row) {
-      res.json({
-        ditemukan: true,
-        id: row.id_barang,
-        nama: row.nama_barang,
-        varian: row.varian,
-        kategori: row.kategori_bahan,
-        stock: Number(row.total),
-        threshold: Number(row.minimum_stock),
-        satuanEceran: row.satuan || 'Pcs',
-        satuanGrosir: row.satuan_gudang || null,
-        isiPerGrosir: row.isi_per_gudang != null ? Number(row.isi_per_gudang) : null,
-        hargaBarang: row.harga_barang != null ? Number(row.harga_barang) : null,
-        keterangan: row.keterangan || '',
-        divisi: row.divisi || ''
-      });
-    } else {
-      res.json({ ditemukan: false, id });
-    }
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get("/api/barang", async (req, res) => {
+app.get("/api/barang", wajibGudang, async (req, res) => {
   try{
     const r = await sb.from('barang_inventory').select('*').order('dibuat_pada', { ascending: true });
     if (r.error) throw new Error(r.error.message);
@@ -387,7 +330,7 @@ app.get("/api/barang", async (req, res) => {
   }
 });
 
-app.get("/api/transaksi", async(req, res) => {
+app.get("/api/transaksi", wajibGudang, async(req, res) => {
   try{
     const r = await sb.from('transaksi').select('*').order('dibuat_pada', { ascending: true });
     if (r.error) throw new Error(r.error.message);
@@ -421,7 +364,7 @@ async function buatIdBarang() {
   throw new Error('Gagal generate ID barang, coba lagi.');
 }
 
-app.post('/api/tambahBarangBaru', async (req, res) => {
+app.post('/api/tambahBarangBaru', wajibGudang, async (req, res) => {
   try {
     const { id, nama, varian, kategori, jumlah, restock, satuanEceran, satuanGudang, isiPerGudang, divisi, keterangan, istilah, totalBayar } = req.body;
     const namaBersih = String(nama || '').trim().replace(/\s+/g, ' ');
@@ -494,7 +437,7 @@ app.post('/api/tambahBarangBaru', async (req, res) => {
 });
 
 // Ubah metadata barang (ID + stock terkunci; satuan wajib konfirmasi ketik-ulang)
-app.put('/api/barang/:id', async (req, res) => {
+app.put('/api/barang/:id', wajibGudang, async (req, res) => {
   try {
     const id = String(req.params.id || '').trim();
     const ada = await sb.from('barang_inventory').select('*').eq('id_barang', id).maybeSingle();
@@ -563,7 +506,7 @@ app.put('/api/barang/:id', async (req, res) => {
 });
 
 // Hapus barang + transaksi miliknya; tolak bila dipakai di pesanan/pengiriman
-app.delete('/api/barang/:id', async (req, res) => {
+app.delete('/api/barang/:id', wajibGudang, async (req, res) => {
   try {
     const id = String(req.params.id || '').trim();
     const ada = await sb.from('barang_inventory').select('id_barang,nama_barang').eq('id_barang', id).maybeSingle();
@@ -595,7 +538,7 @@ app.delete('/api/barang/:id', async (req, res) => {
 });
 
 // Proses transaksi masuk/keluar-
-app.post('/api/prosesTransaksi', async (req, res) => {
+app.post('/api/prosesTransaksi', wajibGudang, async (req, res) => {
   try {
     const { id, jenis, jumlah, satuanInput, totalBayar } = req.body;
     const b = await sb.from('barang_inventory').select('*').eq('id_barang', String(id).trim()).maybeSingle();
@@ -667,7 +610,7 @@ app.post('/api/prosesTransaksi', async (req, res) => {
                         jmlh,
                         satuanEceran,
                         hargaSatuanTrx);
-    await cekThresholdDanKirimWA(
+    await cekThreshold(
       row.id_barang,
       row.nama_barang,
       stockBaru,
@@ -684,27 +627,10 @@ app.post('/api/prosesTransaksi', async (req, res) => {
   }
 });
 
-//Kirim pesan WA
-app.post('/api/sendMessage', async (req, res) => {
-  try{
-    const { pesan } = req.body;
-
-    if (!pesan){
-      return res.status(400).json({sukses: false, pesan: "Isi Pesan terlebih dahulu"});
-    }
-
-    await kirimPesan(pesan);
-    res.json({sukses: true, pesan: "Pesan Reminder Terkirim!"});
-  } catch(err){
-    console.error(err);
-    res.status(500).json({sukses: false, pesan:`Pesan gagal terkirim, ${err.message}`});
-  }
-});
-
 // ---- Pengiriman gudang -> outlet (Step 1 / T1) ----
 
-// Buat pengiriman manual (Kirim Susulan / Non-Pesanan). T2: fungsi inti ini dipakai ulang
-// secara internal oleh approve pesanan (tanpa endpoint).
+// Inti pembuatan pengiriman — HANYA dipakai internal oleh approve pesanan (T2).
+// Endpoint manual susulan dicabut 2026-09-14 (fitur tak dipakai).
 async function buatPengiriman(outlet, items, idPesan = null) {
   if (!outlet || !String(outlet).trim()) throw new Error('Nama outlet wajib diisi.');
   if (!Array.isArray(items) || items.length === 0) throw new Error('Minimal 1 item.');
@@ -750,7 +676,7 @@ async function buatPengiriman(outlet, items, idPesan = null) {
         row.kategori_bahan, 'Keluar', qty, row.satuan || 'Pcs',
         row.harga_barang != null ? Number(row.harga_barang) : null);
       jejak.push({ id_transaksi: idTrx, id_barang: row.id_barang, qty });
-      await cekThresholdDanKirimWA(row.id_barang, row.nama_barang,
+      await cekThreshold(row.id_barang, row.nama_barang,
         hasil.sisa, Number(row.minimum_stock));
     }
   } catch (e) {
@@ -785,18 +711,7 @@ async function buatPengiriman(outlet, items, idPesan = null) {
   return { idKirim, ringkasan };
 }
 
-app.post('/api/pengiriman', async (req, res) => {
-  try {
-    const { outlet, items } = req.body;
-    const hasil = await buatPengiriman(outlet, items);
-    res.json({ sukses: true, ...hasil, pesan: `Pengiriman ${hasil.idKirim} dibuat (SIAP KIRIM). Klik Tandai Dikirim saat paket lepas.` });
-  } catch (err) {
-    console.error(err);
-    res.status(400).json({ sukses: false, pesan: err.message });
-  }
-});
-
-app.get('/api/pengiriman', async (req, res) => {
+app.get('/api/pengiriman', wajibGudang, async (req, res) => {
   try {
     const r = await sb.from('pengiriman').select('*').order('dibuat_pada', { ascending: false });
     if (r.error) throw new Error(r.error.message);
@@ -810,7 +725,7 @@ app.get('/api/pengiriman', async (req, res) => {
 // Tandai Dikirim (manual): SIAP KIRIM -> DIKIRIM, token berita acara lahir.
 // Gerbang verifikasi: ceklis per baris by POSISI index (ID bisa kembar '-') + foto kirim opsional.
 // Gagal upload foto di frontend tak memblokir — foto null tetap boleh Tandai.
-app.post('/api/pengiriman/:id/kirim', async (req, res) => {
+app.post('/api/pengiriman/:id/kirim', wajibGudang, async (req, res) => {
   try {
     const row = await cariPengiriman(req.params.id);
     if (!row) return res.status(404).json({ sukses: false, pesan: 'ID Kirim tidak ditemukan.' });
@@ -845,7 +760,7 @@ app.post('/api/pengiriman/:id/kirim', async (req, res) => {
     await simpanPengiriman(row);
     await mirrorPesanan(row.id_pesan, 'DIKIRIM', 'Dikirim (link berita acara aktif)');
     // WA admin fire-and-forget (path saja: domain publik tak dikenal server; URL penuh via Salin)
-    kirimPesan(`*LINK BERITA ACARA*\nKirim ${row.id_kirim} ke ${row.outlet} DIKIRIM.\nLink: /terima/${token}\nTeruskan ke outlet via WA. Outlet juga bisa buka link pemesanan → tab Surat Jalan.`);
+    console.log(`*LINK BERITA ACARA*\nKirim ${row.id_kirim} ke ${row.outlet} DIKIRIM.\nLink: /terima/${token}\nTeruskan ke outlet via WA. Outlet juga bisa buka link pemesanan → tab Surat Jalan.`);
     res.json({ sukses: true, token, pesan: `Pengiriman ${row.id_kirim} DIKIRIM. Kirim link berita acara ke outlet via WA.` });
   } catch (err) {
     console.error(err);
@@ -854,7 +769,7 @@ app.post('/api/pengiriman/:id/kirim', async (req, res) => {
 });
 
 // Batalkan Pengiriman: DIKIRIM -> SIAP KIRIM (hanya sebelum outlet lapor + alasan wajib)
-app.post('/api/pengiriman/:id/batal-kirim', async (req, res) => {
+app.post('/api/pengiriman/:id/batal-kirim', wajibGudang, async (req, res) => {
   try {
     const { alasan } = req.body;
     if (!alasan || !String(alasan).trim()) {
@@ -888,6 +803,159 @@ app.post('/api/pengiriman/:id/batal-kirim', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ sukses: false, pesan: err.message });
+  }
+});
+
+// Lonceng gudang (pengganti WA): tulis best-effort, tak pernah gagalkan transaksi.
+async function tulisNotifikasi(judul, isi, ref) {
+  try {
+    const ins = await sb.from('notifikasi').insert({
+      untuk: 'gudang',
+      judul: String(judul || '').slice(0, 120),
+      isi: String(isi || '').slice(0, 500),
+      ref: String(ref || '').slice(0, 60),
+    });
+    if (ins.error) throw new Error(ins.error.message);
+    const batas = new Date(Date.now() - 30 * 86400 * 1000).toISOString();
+    await sb.from('notifikasi').delete().lt('dibuat_pada', batas);
+  } catch (e) { console.warn('lonceng gagal:', e.message); }
+}
+
+app.get('/api/notifikasi', wajibGudang, async (req, res) => {
+  try {
+    const [d, c] = await Promise.all([
+      sb.from('notifikasi').select('*').eq('untuk', 'gudang').order('id', { ascending: false }).limit(20),
+      sb.from('notifikasi').select('id', { count: 'exact', head: true }).eq('untuk', 'gudang').eq('dibaca', false),
+    ]);
+    if (d.error) throw new Error(d.error.message);
+    if (c.error) throw new Error(c.error.message);
+    res.json({ belumBaca: c.count || 0, daftar: d.data || [] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/notifikasi/baca', wajibGudang, async (req, res) => {
+  try {
+    const r = await sb.from('notifikasi').update({ dibaca: true }).eq('untuk', 'gudang').eq('dibaca', false).select('id');
+    if (r.error) throw new Error(r.error.message);
+    res.json({ sukses: true, dibaca: (r.data || []).length });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ sukses: false, pesan: err.message });
+  }
+});
+
+// Surat jalan cetak (F8): payload siap-cetak per kiriman, baca-saja (tanpa endpoint tulis).
+app.get('/api/surat-jalan/:idKirim', wajibGudang, async (req, res) => {
+  try {
+    const row = await cariPengiriman(req.params.idKirim);
+    if (!row) return res.status(404).json({ error: 'ID Kirim tidak ditemukan.' });
+    if (String(row.status || '').trim() === 'SIAP KIRIM') {
+      return res.status(409).json({ error: 'Surat jalan hanya bisa dicetak setelah paket ditandai dikirim.' });
+    }
+    let dikirim = row.items_json;
+    if (typeof dikirim === 'string') { try { dikirim = JSON.parse(dikirim || '[]'); } catch { dikirim = []; } }
+    if (!Array.isArray(dikirim)) dikirim = [];
+
+    const ddmmyyyy = (ymd) => {
+      const [y, m, d] = String(ymd || '').split('-');
+      return (y && m && d) ? `${d}/${m}/${y}` : '-';
+    };
+    // Pesanan ref (sekali ambil: untuk tanggal + urutan baris coret).
+    let linePesan = null;
+    try {
+      const idPesan = row.id_pesan ? String(row.id_pesan).trim() : '';
+      if (idPesan && idPesan !== '-') {
+        const p = await cariPesanan(idPesan);
+        if (p) {
+          let arr = p.items_json;
+          if (typeof arr === 'string') { try { arr = JSON.parse(arr || '[]'); } catch { arr = []; } }
+          if (Array.isArray(arr) && arr.length) linePesan = { arr, dibuat: p.dibuat_pada };
+        }
+      }
+    } catch { linePesan = null; }
+    // tglPesan: dibuat_pada pesanan (ISO, exact); fallback = dibuat kiriman.
+    const ymdBuat = row.dibuat_pada ? jakartaParts(new Date(row.dibuat_pada)).ymd : '';
+    let tglPesan = ddmmyyyy(ymdBuat);
+    if (linePesan && linePesan.dibuat) tglPesan = ddmmyyyy(jakartaParts(new Date(linePesan.dibuat)).ymd);
+    // tglKirim: parse string baku kita sendiri ("14 September 2026"); fallback = dibuat kiriman.
+    let tglKirim = ddmmyyyy(ymdBuat);
+    try {
+      const m = String(row.tanggal_kirim || '').match(/(\d{1,2}) ([A-Za-z]+) (\d{4})/);
+      if (m) {
+        const bi = NAMA_BULAN.findIndex(b => b.toLowerCase() === m[2].toLowerCase());
+        if (bi >= 0) tglKirim = `${String(m[1]).padStart(2, '0')}/${String(bi + 1).padStart(2, '0')}/${m[3]}`;
+      }
+    } catch { /* fallback di atas */ }
+
+    const ref = await sb.from('barang_inventory').select('id_barang,satuan,harga_barang');
+    if (ref.error) throw new Error(ref.error.message);
+    const refMap = new Map((ref.data || []).map(b => [String(b.id_barang).trim(), b]));
+
+    let grandTotal = 0;
+    let adaTanpaHarga = false;
+    const namaLengkap = (it) => (it.varian ? `${it.nama} - ${it.varian}` : (it.nama || it.id || '?'));
+    const barisKirim = (it, no) => {
+      const b = refMap.get(String(it.id || '').trim());
+      const qty = Number(it.jumlahKirim) || 0;
+      const harga = b && b.harga_barang != null ? Number(b.harga_barang) : 0;
+      if (!(b && b.harga_barang != null)) adaTanpaHarga = true;
+      const total = qty * harga;
+      grandTotal += total;
+      return {
+        no,
+        ditolak: false,
+        outlet: String(row.outlet || '').trim(),
+        nama: namaLengkap(it),
+        note: String(it.keterangan || '').trim(),
+        qty,
+        satuan: (b && b.satuan) || '-',
+        harga,
+        total,
+      };
+    };
+    // Susun ikut urutan line pesanan: PENUHI = data kirim, TOLAK = baris coret.
+    // Tanpa pesanan (susulan lama) = isi paket apa adanya.
+    let items;
+    if (linePesan) {
+      const termakan = new Set();
+      items = linePesan.arr.map((lp) => {
+        if (String(lp.keputusan || '').toUpperCase() === 'TOLAK') {
+          return {
+            no: 0,
+            ditolak: true,
+            outlet: String(row.outlet || '').trim(),
+            nama: namaLengkap(lp),
+            note: String(lp.keterangan || '').trim(),
+            qty: Number(lp.qtyPesan) || 0,
+            satuan: String(lp.satuan || '').trim() || '-',
+            harga: null,
+            total: null,
+          };
+        }
+        const idx = dikirim.findIndex((it, i) => !termakan.has(i) && String(it.id) === String(lp.id));
+        if (idx >= 0) termakan.add(idx);
+        return barisKirim(idx >= 0 ? dikirim[idx] : { id: lp.id, nama: lp.nama, varian: lp.varian, jumlahKirim: 0, keterangan: '' }, 0);
+      });
+    } else {
+      items = dikirim.map((it) => barisKirim(it, 0));
+    }
+    items.forEach((it, i) => { it.no = i + 1; });
+
+    res.json({
+      idKirim: row.id_kirim,
+      outlet: String(row.outlet || '').trim(),
+      tglPesan,
+      tglKirim,
+      items,
+      grandTotal,
+      adaTanpaHarga,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -954,8 +1022,10 @@ app.post('/api/pengiriman/:token/konfirmasi', async (req, res) => {
     row.riwayat_status = tambahRiwayat(row.riwayat_status, `Dilaporkan outlet (${status}) oleh ${String(namaPenerima).trim()}${row.foto_terima ? ' + foto' : ''}`);
     await simpanPengiriman(row);
     await mirrorPesanan(row.id_pesan, status, `Dilaporkan outlet (${status})`);
-    // WA admin fire-and-forget (gagal kirim tak menggagalkan laporan — kirimPesan aman)
-    kirimPesan(`*LAPORAN TERIMA ${status}*\nKirim: ${row.id_kirim}${row.id_pesan ? ` (pesan ${row.id_pesan})` : ''}\nOutlet: ${row.outlet}\n${row.ringkasan || ''}${(row.alasan || '').trim() ? `\nAlasan: ${String(row.alasan).trim()}` : ''}\nPenerima: ${String(namaPenerima).trim()}`);
+    // Jejak laporan di log (lonceng dalam-web menyusul)
+    console.log(`*LAPORAN TERIMA ${status}*\nKirim: ${row.id_kirim}${row.id_pesan ? ` (pesan ${row.id_pesan})` : ''}\nOutlet: ${row.outlet}\n${row.ringkasan || ''}${(row.alasan || '').trim() ? `\nAlasan: ${String(row.alasan).trim()}` : ''}\nPenerima: ${String(namaPenerima).trim()}`);
+    await tulisNotifikasi(`LAPORAN TERIMA ${status} — ${row.id_kirim}`,
+      `${row.outlet}: ${row.ringkasan || ''} (oleh ${String(namaPenerima).trim()})`, row.id_kirim);
     res.json({ sukses: true, status, pesan: status === 'DITERIMA' ? 'Terima kasih! Laporan diterima penuh.' : 'Laporan diterima sebagian, gudang akan menindaklanjuti kekurangan.' });
   } catch (err) {
     console.error(err);
@@ -965,8 +1035,11 @@ app.post('/api/pengiriman/:token/konfirmasi', async (req, res) => {
 
 // ---- Pesanan outlet (T2a) ----
 
-// P1b: status yang memblokir pesan baru (terminal: DITERIMA/DITERIMA SEBAGIAN/DITOLAK)
-const STATUS_AKTIF_PESANAN = ['BARU', 'DISETUJUI', 'DISETUJUI SEBAGIAN', 'SIAP KIRIM', 'DIKIRIM'];
+// Gate loket pesan (2026-09-14, ganti P1b 1-aktif): buka tiap hari di bawah jam 15:00 WIB.
+function pesanDibuka(waktu = new Date()) {
+  return jakartaParts(new Date(waktu)).jam < SLOT_CUTOFF_JAM;
+}
+const PESAN_TUTUP = 'Hanya menerima pesanan di bawah jam 15.00 WIB.';
 
 // Auth link permanen: token saja, slug diabaikan (PRD seksi 6). Outlet di Supabase.
 async function cariOutletByToken(token) {
@@ -995,6 +1068,7 @@ function pesananKeJson(row, linkTerima = null, foto = {}) {
     status: row.status,
     items,
     ringkasan: row.ringkasan || '',
+    dibuatPada: row.dibuat_pada || null,
     linkTerima,
     fotoKirim: foto.fotoKirim || null,
     fotoTerima: foto.fotoTerima || null,
@@ -1017,7 +1091,7 @@ async function simpanPesanan(row) {
 }
 
 // Gudang: daftar semua pesanan, terbaru-di-atas
-app.get('/api/pesanan', async (req, res) => {
+app.get('/api/pesanan', wajibGudang, async (req, res) => {
   try {
     const r = await sb.from('pesanan').select('*').order('dibuat_pada', { ascending: false });
     if (r.error) throw new Error(r.error.message);
@@ -1075,7 +1149,7 @@ app.get('/api/pesan/:token', async (req, res) => {
       const info = infoKirim[id] || {};
       return pesananKeJson(x, info.link || null, info);
     });
-    const aktif = milik.find(x => STATUS_AKTIF_PESANAN.includes(String(x.status || '').trim()));
+    const dibuka = pesanDibuka(new Date());
 
     res.json({
       outlet: outlet.nama_outlet,
@@ -1083,8 +1157,8 @@ app.get('/api/pesan/:token', async (req, res) => {
       jadwal: { batchMasuk: batchLabel, rencanaKirim: kirimLabel },
       katalog,
       riwayat: milik,
-      bolehPesan: !aktif,
-      pesananAktif: aktif ? { idPesan: aktif.idPesan, status: aktif.status, batchMasuk: aktif.batchMasuk, rencanaKirim: aktif.rencanaKirim } : null,
+      bolehPesan: dibuka,
+      pesanDibuka: dibuka,
     });
   } catch (err) {
     console.error(err);
@@ -1092,11 +1166,14 @@ app.get('/api/pesan/:token', async (req, res) => {
   }
 });
 
-// Outlet (+ Tab Buat gudang): submit keranjang -> BARU + slot otomatis + WA admin
+// Outlet: submit keranjang -> BARU/gabung sehati + slot otomatis + jejak log + lonceng
 app.post('/api/pesan/:token', async (req, res) => {
   try {
     const outlet = await cariOutletByToken(req.params.token);
     if (!outlet) return res.status(404).json({ sukses: false, pesan: 'Link tidak valid.' });
+    if (!pesanDibuka(new Date())) {
+      return res.status(403).json({ sukses: false, pesan: PESAN_TUTUP });
+    }
 
     const { namaPemesan, items } = req.body;
     if (!namaPemesan || !String(namaPemesan).trim()) {
@@ -1104,14 +1181,6 @@ app.post('/api/pesan/:token', async (req, res) => {
     }
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ sukses: false, pesan: 'Keranjang masih kosong.' });
-    }
-
-    // P1b blokir total: 1 pesanan aktif per token (cek sesaat sebelum tulis)
-    const sp = await sb.from('pesanan').select('id_pesan,status').eq('token_outlet', String(req.params.token).trim());
-    if (sp.error) throw new Error(sp.error.message);
-    const ada = sp.data.find(x => STATUS_AKTIF_PESANAN.includes(String(x.status || '').trim()));
-    if (ada) {
-      return res.status(409).json({ sukses: false, pesan: `Masih ada pesanan aktif ${ada.id_pesan} (status ${ada.status}). Selesaikan dulu sebelum pesan baru.` });
     }
 
     const br = await sb.from('barang_inventory').select('*');
@@ -1134,9 +1203,44 @@ app.post('/api/pesan/:token', async (req, res) => {
 
     const sekarang = new Date();
     const { batchLabel, kirimLabel } = hitungSlot(sekarang);
+    const pemesan = String(namaPemesan).trim();
+    const tok = String(req.params.token).trim();
+
+    // Gabung sehati: tempel ke BARU milik token yang dibuat hari-Jakarta ini juga.
+    // Hanya BARU (yang sudah diputus melahirkan pengiriman + potong stock, tak boleh ditempel).
+    let target = null;
+    try {
+      const sb2 = await sb.from('pesanan').select('*').eq('token_outlet', tok).eq('status', 'BARU').order('dibuat_pada', { ascending: false });
+      if (!sb2.error) {
+        const hariIni = jakartaParts(sekarang).ymd;
+        target = (sb2.data || []).find(x => x.dibuat_pada && jakartaParts(new Date(x.dibuat_pada)).ymd === hariIni) || null;
+      }
+    } catch { target = null; }
+
+    if (target) {
+      let lama = target.items_json;
+      if (typeof lama === 'string') { try { lama = JSON.parse(lama || '[]'); } catch { lama = []; } }
+      if (!Array.isArray(lama)) lama = [];
+      for (const it of jadi) {
+        const sama = lama.find(x => String(x.id) === String(it.id));
+        if (sama) sama.qtyPesan = Number(sama.qtyPesan) + Number(it.qtyPesan);
+        else lama.push(it);
+      }
+      const ringkasanGabung = buatRingkasan(lama.map(it => ({ nama: it.nama, qtyPesan: it.qtyPesan, keputusan: 'BARU' })));
+      const up = await sb.from('pesanan').update({
+        items_json: lama,
+        ringkasan: ringkasanGabung,
+        riwayat_status: tambahRiwayat(target.riwayat_status, `Digabung via link outlet oleh ${pemesan}`),
+      }).eq('id_pesan', target.id_pesan).select();
+      if (up.error) throw new Error(up.error.message);
+      console.log(`*PESANAN DIGABUNG ${target.id_pesan}*\nOutlet: ${outlet.nama_outlet} (oleh ${pemesan})\n${ringkasanGabung}\nBatch: ${batchLabel} | Rencana kirim: ${kirimLabel}`);
+      await tulisNotifikasi(`PESANAN DIGABUNG ${target.id_pesan}`,
+        `${outlet.nama_outlet} (oleh ${pemesan}): ${ringkasanGabung}`, target.id_pesan);
+      return res.json({ sukses: true, idPesan: target.id_pesan, digabung: true, batchMasuk: batchLabel, rencanaKirim: kirimLabel, pesan: `Pesanan digabung ke ${target.id_pesan} (masih hari yang sama). Batch ${batchLabel}, rencana kirim ${kirimLabel}.` });
+    }
+
     const idPesan = await buatIdPesan();
     const ringkasan = buatRingkasan(jadi.map(it => ({ nama: it.nama, qtyPesan: it.qtyPesan, keputusan: 'BARU' })));
-    const pemesan = String(namaPemesan).trim();
     const ins = await sb.from('pesanan').insert({
       id_pesan: idPesan,
       token_outlet: String(req.params.token).trim(),
@@ -1151,8 +1255,10 @@ app.post('/api/pesan/:token', async (req, res) => {
     });
     if (ins.error) throw new Error(ins.error.message);
 
-    // WA otomatis ke admin (gagal kirim tidak menggagalkan pesanan — kirimPesan aman)
-    kirimPesan(`*PESANAN BARU ${idPesan}*\nOutlet: ${outlet.nama_outlet} (oleh ${pemesan})\n${ringkasan}\nBatch: ${batchLabel} | Rencana kirim: ${kirimLabel}`);
+    // Jejak pesanan di log (lonceng dalam-web menyusul)
+    console.log(`*PESANAN BARU ${idPesan}*\nOutlet: ${outlet.nama_outlet} (oleh ${pemesan})\n${ringkasan}\nBatch: ${batchLabel} | Rencana kirim: ${kirimLabel}`);
+    await tulisNotifikasi(`PESANAN BARU ${idPesan}`,
+      `${outlet.nama_outlet} (oleh ${pemesan}): ${ringkasan}`, idPesan);
 
     res.json({ sukses: true, idPesan, batchMasuk: batchLabel, rencanaKirim: kirimLabel, pesan: `Pesanan ${idPesan} tercatat (BARU). Batch ${batchLabel}, rencana kirim ${kirimLabel}.` });
   } catch (err) {
@@ -1176,7 +1282,7 @@ async function mirrorPesanan(idPesan, status, catatan) {
 
 // Gudang: putus per item (PENUHI penuh / TOLAK + keterangan). Hanya dari BARU (anti dobel-putus).
 // Urutan tulis: validasi stock semua item penuhi -> buatPengiriman internal -> update Pesanan.
-app.post('/api/pesanan/:id/keputusan', async (req, res) => {
+app.post('/api/pesanan/:id/keputusan', wajibGudang, async (req, res) => {
   try {
     const pesanan = await cariPesanan(req.params.id);
     if (!pesanan) return res.status(404).json({ sukses: false, pesan: 'ID Pesan tidak ditemukan.' });
@@ -1202,7 +1308,19 @@ app.post('/api/pesanan/:id/keputusan', async (req, res) => {
       if (!['PENUHI', 'TOLAK'].includes(kep)) throw new Error(`Item "${asli.nama}": keputusan harus PENUHI/TOLAK.`);
       const keterangan = String(k.keterangan || '').trim();
       if (kep === 'TOLAK' && !keterangan) throw new Error(`Item "${asli.nama}": keterangan wajib karena ditolak.`);
-      return { ...asli, keputusan: kep, qtyKirim: kep === 'PENUHI' ? Number(asli.qtyPesan) : 0, keterangan };
+      const minta = Number(asli.qtyPesan);
+      let qtyKirim = kep === 'PENUHI' ? minta : 0;
+      // Parsial: PENUHI boleh kurang dari pesan + keterangan wajib (tanpa backorder, sisa hangus)
+      if (kep === 'PENUHI' && k.qtyKirim != null && String(k.qtyKirim) !== '') {
+        qtyKirim = Number(k.qtyKirim);
+        if (!Number.isFinite(qtyKirim) || qtyKirim <= 0 || qtyKirim > minta) {
+          throw new Error(`Item "${asli.nama}": jumlah kirim harus 1–${minta}.`);
+        }
+        if (qtyKirim < minta && !keterangan) {
+          throw new Error(`Item "${asli.nama}": keterangan wajib karena dikirim sebagian.`);
+        }
+      }
+      return { ...asli, keputusan: kep, qtyKirim, keterangan };
     });
     const penuhi = putus.filter(it => it.keputusan === 'PENUHI');
     // ponytail: tanpa alasan umum — tiap TOLAK wajib keterangan per item (cukup sebagai alasan)
@@ -1228,13 +1346,14 @@ app.post('/api/pesanan/:id/keputusan', async (req, res) => {
         String(pesanan.id_pesan).trim()
       );
       idKirim = hasil.idKirim;
-      status = penuhi.length === putus.length ? 'DISETUJUI' : 'DISETUJUI SEBAGIAN';
+      const parsial = penuhi.some(it => Number(it.qtyKirim) < Number(it.qtyPesan));
+      status = (penuhi.length === putus.length && !parsial) ? 'DISETUJUI' : 'DISETUJUI SEBAGIAN';
     }
 
     await simpanPesanan({
       ...pesanan,
       items_json: putus,
-      ringkasan: buatRingkasan(putus.map(it => ({ nama: it.nama, qtyPesan: it.qtyPesan, keputusan: it.keputusan, keterangan: it.keterangan }))),
+      ringkasan: buatRingkasan(putus.map(it => ({ nama: it.nama, qtyPesan: it.qtyPesan, qtyKirim: it.qtyKirim, keputusan: it.keputusan, keterangan: it.keterangan }))),
       status,
       riwayat_status: tambahRiwayat(pesanan.riwayat_status, status === 'DITOLAK' ? 'Ditolak semua (lihat keterangan per item)' : `Diputus ${status}${idKirim ? ` (${idKirim})` : ''}`),
     });
@@ -1251,8 +1370,8 @@ function tokenOutletBaru() {
   return Array.from(crypto.randomBytes(8)).map(b => abjad[b % abjad.length]).join('');
 }
 
-// Link lama mati otomatis (lookup by token); tanpa auth tambahan (konsisten: tanpa login).
-app.post('/api/outlet/:slug/reset-link', async (req, res) => {
+// Link lama mati otomatis (lookup by token); wajib sesi gudang.
+app.post('/api/outlet/:slug/reset-link', wajibGudang, async (req, res) => {
   try {
     const target = String(req.params.slug || '').trim().toLowerCase();
     const token = tokenOutletBaru();
@@ -1267,8 +1386,127 @@ app.post('/api/outlet/:slug/reset-link', async (req, res) => {
   }
 });
 
-// Gudang-internal (konsisten: /api/pengiriman pun memuat token). Dipakai dropdown Tab Buat + Kelola Link.
-app.get('/api/outlet', async (req, res) => {
+// ---- Login gudang tahap 1 (2026-09-14): 1 kredensial bersama, tabel `gudang` id=1 ----
+// Skema aktual (milik user): id | password_gudang (scrypt) | created_at.
+// Tanpa dep baru: scrypt via crypto bawaan, cookie diparse manual, sesi opaque di memori.
+
+// Hash format `scrypt$salt$hash` (pola sama untuk password outlet menyusul).
+function hashKataSandi(plain) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(String(plain || ''), salt, 64).toString('hex');
+  return `scrypt$${salt}$${hash}`;
+}
+function cekKataSandi(plain, tersimpan) {
+  try {
+    const [tag, salt, hash] = String(tersimpan || '').split('$');
+    if (tag !== 'scrypt' || !salt || !hash) return false;
+    const cek = crypto.scryptSync(String(plain || ''), salt, 64).toString('hex');
+    const a = Buffer.from(cek, 'hex'), b = Buffer.from(hash, 'hex');
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  } catch { return false; }
+}
+
+// Rate-limit geser 10/mnt per kunci (login gudang; login outlet menyusul pola sama).
+const emberRate = new Map(); // kunci -> [ms, ...]
+function kenaRate(kunci, batas = 10, jendelaMs = 60000) {
+  const kini = Date.now();
+  const list = (emberRate.get(kunci) || []).filter(t => kini - t < jendelaMs);
+  if (list.length >= batas) { emberRate.set(kunci, list); return true; }
+  list.push(kini);
+  emberRate.set(kunci, list);
+  return false;
+}
+
+function bacaCookie(req, nama) {
+  const h = req.headers.cookie || '';
+  for (const pot of h.split(';')) {
+    const i = pot.indexOf('=');
+    if (i < 0) continue;
+    if (pot.slice(0, i).trim() === nama) return decodeURIComponent(pot.slice(i + 1).trim());
+  }
+  return '';
+}
+
+const sesiGudang = new Map(); // token -> expMs (restart server = logout ulang, password tetap)
+const UMUR_SESI_GUDANG_MS = 24 * 3600 * 1000;
+function wajibGudang(req, res, next) {
+  if (String(process.env.GUDANG_GATE || '').toLowerCase() === 'off') return next(); // kill-switch uji
+  const tok = bacaCookie(req, 'sesi_gudang');
+  const exp = tok ? sesiGudang.get(tok) : 0;
+  if (!tok || !exp || exp < Date.now()) {
+    if (tok) sesiGudang.delete(tok);
+    return res.status(401).json({ error: 'Login gudang dulu.' });
+  }
+  next();
+}
+
+app.post('/api/gudang/masuk', async (req, res) => {
+  try {
+    const ip = req.ip || (req.socket && req.socket.remoteAddress) || '?';
+    if (kenaRate(`gudang:${ip}`)) {
+      return res.status(429).json({ sukses: false, pesan: 'Terlalu banyak percobaan. Tunggu sebentar.' });
+    }
+    const { password } = req.body || {};
+    const r = await sb.from('gudang').select('*').eq('id', 1).maybeSingle();
+    if (r.error) throw new Error(r.error.message);
+    if (!r.data) {
+      return res.status(401).json({ sukses: false, pesan: 'Password gudang belum di-set. Minta ke developer.' });
+    }
+    if (!cekKataSandi(password, r.data.password_gudang)) {
+      return res.status(401).json({ sukses: false, pesan: 'Password salah.' });
+    }
+    const tok = crypto.randomBytes(32).toString('hex');
+    sesiGudang.set(tok, Date.now() + UMUR_SESI_GUDANG_MS);
+    res.setHeader('Set-Cookie', `sesi_gudang=${tok}; HttpOnly; Path=/; Max-Age=86400; SameSite=Lax`);
+    res.json({ sukses: true, pesan: 'Masuk sebagai gudang.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ sukses: false, pesan: err.message });
+  }
+});
+
+app.post('/api/gudang/keluar', (req, res) => {
+  const tok = bacaCookie(req, 'sesi_gudang');
+  if (tok) sesiGudang.delete(tok);
+  res.setHeader('Set-Cookie', 'sesi_gudang=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax');
+  res.json({ sukses: true, pesan: 'Keluar.' });
+});
+
+app.get('/api/gudang/sesi', (req, res) => {
+  if (String(process.env.GUDANG_GATE || '').toLowerCase() === 'off') return res.json({ masuk: true });
+  const tok = bacaCookie(req, 'sesi_gudang');
+  const exp = tok ? sesiGudang.get(tok) : 0;
+  if (!tok || !exp || exp < Date.now()) {
+    if (tok) sesiGudang.delete(tok);
+    return res.status(401).json({ masuk: false });
+  }
+  res.json({ masuk: true });
+});
+
+// Ganti password: SELALU wajib sesi (tanpa bootstrap terbuka; seed awal via SQL developer).
+app.post('/api/gudang/password', wajibGudang, async (req, res) => {
+  try {
+    const { password, konfirmasi } = req.body || {};
+    if (!password || String(password).length < 4) {
+      return res.status(400).json({ sukses: false, pesan: 'Password minimal 4 karakter.' });
+    }
+    if (password !== konfirmasi) {
+      return res.status(400).json({ sukses: false, pesan: 'Ketik ulang tidak sama.' });
+    }
+    const up = await sb.from('gudang').update({ password_gudang: hashKataSandi(password) }).eq('id', 1).select('id');
+    if (up.error) throw new Error(up.error.message);
+    if (!up.data || up.data.length === 0) {
+      return res.status(400).json({ sukses: false, pesan: 'Baris password gudang (id=1) tidak ada. Buat via SQL dulu.' });
+    }
+    res.json({ sukses: true, pesan: 'Password gudang diganti.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ sukses: false, pesan: err.message });
+  }
+});
+
+// Gudang-internal (konsisten: /api/pengiriman pun memuat token). Dipakai Kelola Link (Tab Lainnya).
+app.get('/api/outlet', wajibGudang, async (req, res) => {
   try {
     const r = await sb.from('outlet').select('*').order('nama_outlet', { ascending: true });
     if (r.error) throw new Error(r.error.message);

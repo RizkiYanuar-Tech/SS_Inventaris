@@ -3,8 +3,9 @@ import { useParams } from 'react-router-dom';
 import { Container, Card, Form, Button, Alert, Tabs, Tab, Collapse } from 'react-bootstrap';
 import { lihatPesananOutlet, buatPesananOutlet } from '../api/client';
 import TerimaForm from '../components/outlet/TerimaForm';
-import TiketPesanan, { BadgeStatus, Pager } from '../components/outlet/TiketPesanan';
+import TiketPesanan, { Pager } from '../components/outlet/TiketPesanan';
 import ResultModal from '../components/common/ResultModal';
+import RefreshButton from '../components/layout/RefreshButton';
 
 // Halaman publik outlet (tanpa nav, Incognito-friendly): Tab Pesan Baru + Riwayat + Surat Jalan.
 // Link: /pesan/<slug>-<token8>; auth via token saja (slug diabaikan, ikut backend).
@@ -27,6 +28,14 @@ export default function PesanOutletPage() {
     const [suratExpand, setSuratExpand] = useState(null); // idPesan yang surat jalannya dibuka
     const [halSurat, setHalSurat] = useState(1); // pagination Tab Surat Jalan (5/halaman)
     const [halRiwayat, setHalRiwayat] = useState(1); // pagination Tab Riwayat (5/halaman)
+    const [refreshing, setRefreshing] = useState(false); // spinner tombol refresh manual
+
+    // Refresh manual: fetch penuh (termasuk katalog), data lama tetap tampil selama loading.
+    async function refreshManual() {
+        if (refreshing) return;
+        setRefreshing(true);
+        try { await muat(); } finally { setRefreshing(false); }
+    }
 
     // ringan=true untuk poll: respons tanpa katalog, pakai katalog fetch penuh pertama.
     async function muat(ringan = false) {
@@ -184,7 +193,11 @@ export default function PesanOutletPage() {
 
     return (
         <Container className='py-4' style={{ maxWidth: '480px' }}>
-            <h2 className='mb-1 fw-bold text-center'>{data.outlet}</h2>
+            <div className='d-flex align-items-center justify-content-between mb-1'>
+                <span style={{ width: 34 }} />
+                <h2 className='mb-0 fw-bold text-center flex-grow-1'>{data.outlet}</h2>
+                <RefreshButton onClick={refreshManual} loading={refreshing} />
+            </div>
             <p className='text-center text-muted small mb-3'>
                 Batch masuk: {data.jadwal?.batchMasuk} • Rencana kirim: {data.jadwal?.rencanaKirim}<br />
                 Slot Senin & Kamis, cutoff 15:00 WIB
@@ -192,16 +205,14 @@ export default function PesanOutletPage() {
 
             <Tabs activeKey={tab} onSelect={setTab} className='mb-3'>
                 <Tab eventKey='pesan' title='Pesan Baru'>
-                    {!data.bolehPesan && data.pesananAktif ? (
+                    {!data.bolehPesan ? (
                         <Card className='shadow-sm border-0'>
                             <Card.Body className='text-center'>
-                                <div className='mb-2'><BadgeStatus status={data.pesananAktif.status} /></div>
                                 <p className='small mb-1'>
-                                    Pesanan <strong>{data.pesananAktif.idPesan}</strong> masih aktif
-                                    (status {data.pesananAktif.status}).
+                                    <strong>Hanya menerima pesanan di bawah jam 15.00 WIB.</strong>
                                 </p>
                                 <p className='text-muted small mb-3'>
-                                    Tunggu konfirmasi sebelum pesan baru. Pantau di Tab Riwayat.
+                                    Loket buka lagi besok pagi. Pantau pesananmu di Tab Riwayat.
                                 </p>
                                 <Button size='sm' variant='outline-primary' onClick={() => { setHalRiwayat(1); setTab('riwayat'); }}>
                                     Lihat Riwayat
@@ -210,16 +221,8 @@ export default function PesanOutletPage() {
                         </Card>
                     ) : (
                         <>
-                            <div style={{ position: 'sticky', top: 0, zIndex: 20, background: '#fff', paddingTop: 4, paddingBottom: 8 }}>
-                                <Form.Control
-                                    size='sm' placeholder='Cari barang...'
-                                    value={search} onChange={e => setSearch(e.target.value)}
-                                    aria-label='Cari barang'
-                                />
-                            </div>
-
                             {/* Kartu keranjang melayang: header selalu tampil, rincian ciut/mekar */}
-                            <Card className='shadow-sm mb-2' style={{ position: 'sticky', top: 52, zIndex: 15, background: '#FFF8E1', borderColor: '#f0e2b6' }}>
+                            <Card className='shadow-sm mb-2' style={{ position: 'sticky', top: 0, zIndex: 15, background: '#FFF8E1', borderColor: '#f0e2b6' }}>
                                 <Card.Body className='py-2'>
                                     <div className='d-flex justify-content-between align-items-center'>
                                         <div className='small'>
@@ -267,10 +270,18 @@ export default function PesanOutletPage() {
                                 </Card.Body>
                             </Card>
 
+                            <div className='pt-1 pb-2' style={{ background: '#fff' }}>
+                                <Form.Control
+                                    size='sm' placeholder='Cari barang...'
+                                    value={search} onChange={e => setSearch(e.target.value)}
+                                    aria-label='Cari barang'
+                                />
+                            </div>
+
                             {/* Bar kategori menyamping (sticky): klik → daftar langsung ganti */}
                             {!sedangCari && kelompok.length > 1 && (
                                 <div className='d-flex gap-1 mb-2 py-1' role='tablist' aria-label='Kategori barang'
-                                    style={{ overflowX: 'auto', position: 'sticky', top: 104, zIndex: 10, background: '#fff' }}>
+                                    style={{ overflowX: 'auto', position: 'sticky', top: 64, zIndex: 10, background: '#fff' }}>
                                     {kelompok.map(k => {
                                         const terisi = jmlTerisi(k.items);
                                         const aktif = k.nama === katTampil;

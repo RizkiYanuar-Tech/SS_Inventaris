@@ -1,13 +1,14 @@
+import { Button } from 'react-bootstrap'
 import { RotateCw } from 'lucide-react'
 
+// Tombol segarkan: kembaran tombol Keluar (outline + ikon + label, 1 bahasa visual).
+// Hover/tekan ikut perilaku outline Bootstrap (isi penuh saat hover) — tanpa CSS/state kustom.
+// Putaran ikon via keyframe `.putar` di index.css.
 export default function RefreshButton({onClick, loading}){
     return (
-        <button
-            onClick={onClick}
-            className='p-2 rounded-full bg-white shadow-sm activate:scale-95 transition-transform'
-            aria-label='Refresh Data'
-        >
-            <RotateCw size={18} className={loading ? 'animate-spin text-gray-400': 'text-gray-600'} /> 
-        </button>
+        <Button variant='outline-primary' size='sm' onClick={onClick} disabled={loading}
+            className='d-flex align-items-center gap-1 fw-semibold'>
+            <RotateCw size={16} className={loading ? 'putar' : ''} /> {loading ? 'Memuat...' : 'Refresh'}
+        </Button>
     )
 }

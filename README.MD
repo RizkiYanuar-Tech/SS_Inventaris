@@ -22,10 +22,8 @@ Sistem secara otomatis akan menghasilkan output:
 3. Laporan Rekomendasi Bulanan: Rekapitulasi terjadwal pada setiap tanggal 30 yang berisi sisa stok aktual dan rekomendasi jumlah restock dari AI untuk bulan berikutnya.
 
 ## Kebutuhan Minimum
-- Browser modern + HTTPS (wajib agar kamera diizinkan browser), Android 9+ / iOS 14+.
-- Kamera belakang dengan autofocus (penentu utama keberhasilan scan, bukan RAM/CPU).
-- RAM 4GB lancar pada setting default (`fps 10, 1280x720` di `frontend/src/components/scan/QrScanner.jsx`); RAM 3GB gunakan fallback `640x480 + fps 5`.
-- Izin kamera diberikan dan dibuka via tab browser biasa (bukan WebView yang memblokir kamera).
+- Browser modern, Android 9+ / iOS 14+.
+- RAM 4GB lancar; kamera tidak lagi dibutuhkan (scan dicabut 2026-09-14, input full manual).
 
 ## Cara Test di HP via Ngrok (Opsi A, tanpa build)
 1. Terminal 1: `node server.js` (backend port 3000, sumber `/api`).
@@ -36,6 +34,6 @@ Sistem secara otomatis akan menghasilkan output:
 
 ## Workflow Singkat
 - Pesan: outlet buka link permanen `/pesan/<slug>-<token>` (2 tab: Pesan Baru | Riwayat) → keranjang (tanpa stock) → submit → status BARU + batch masuk & rencana kirim otomatis (slot Senin & Kamis, cutoff 15:00 WIB).
-- Kirim: gudang approve per item di hub `/pesanan` (Penuhi / Tolak + keterangan manual) → record pengiriman TERBENTUK OTOMATIS + stock berkurang 1x (tanpa tombol buat-manual) → klik manual `Tandai Dikirim` → link berita acara `/terima/:token` valid + dikirim via WA. Batal kirim hanya sebelum outlet konfirmasi (link lama mati, alasan wajib). Pengiriman susulan tanpa pesanan (non-pesanan) via `/kirim` (Kirim Susulan).
+- Kirim: gudang approve per item di hub `/pesanan` (Penuhi / Tolak + keterangan manual) → record pengiriman TERBENTUK OTOMATIS + stock berkurang 1x (tanpa tombol buat-manual) → klik manual `Tandai Dikirim` → link berita acara `/terima/:token` valid + dikirim via WA. Batal kirim hanya sebelum outlet konfirmasi (link lama mati, alasan wajib).
 - Terima: outlet ceklis per baris yang sesuai (baris bermasalah jangan diceklis + wajib jumlah terima + keterangan) + nama penerima → 1 tombol `Kirim Laporan Terima` → terkunci (DITERIMA/DITERIMA SEBAGIAN = berita acara barang masuk). Gudang terima ringkasan surat jalan read-only.
 - Detail lengkap: lihat `PRD.MD`.
