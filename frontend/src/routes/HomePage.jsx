@@ -204,19 +204,21 @@ export default function HomePage(){
                 <p className="text-muted text-center py-5">Memuat data...</p>
             ) : (
                 <>
-                    <Row className="g-3 mb-4">
-                        <Col xs={6} md={4}>
-                            <SummaryCard icon={Package} iconColor='#2563eb' label='Jumlah Barang' value={totalBarang}/>
-                        </Col>
-                        <Col xs={6} md={4}>
+                    <Row className="g-3 mb-3">
+                        <Col xs={12}>
                             <div className='position-relative h-100'>
-                                <SummaryCard icon={Banknote} iconColor='#16a34a' label='Total Aset Inventory' value={totalAsetRp} unit={belumHarga > 0 ? `${belumHarga} item belum ada harga` : null} />
+                                <SummaryCard icon={Banknote} iconColor='#16a34a' label='Total Aset Inventory' value={totalAsetRp} unit={belumHarga > 0 ? `${belumHarga} item belum ada harga` : null} ukuran='fs-4' />
                                 <Button variant='link' size='sm' className='position-absolute top-0 end-0 p-2 text-muted'
                                     onClick={handleUnduhAset} disabled={isLoading || barang.length === 0}
                                     aria-label='Unduh rincian aset (CSV)' title='Unduh rincian aset (CSV)'>
                                     <Download size={16} />
                                 </Button>
                             </div>
+                        </Col>
+                    </Row>
+                    <Row className="g-3 mb-4">
+                        <Col xs={6} md={4}>
+                            <SummaryCard icon={Package} iconColor='#2563eb' label='Jumlah Barang' value={totalBarang}/>
                         </Col>
                         <Col xs={6} md={4}>
                             <SummaryCard icon={TriangleAlert} iconColor='#f70505' label='Stock Habis' value={emptyStockCount} unit="barang habis" rel='#dc3545'/>

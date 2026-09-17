@@ -10,7 +10,7 @@ export default function FormBarangBaru({ id, onSubmit, daftarBarang }) {
     const [nama, setNama] = useState('');
     const [varian, setVarian] = useState('');
     const [kategori, setKategori] = useState('');
-    const [satuan, setSatuan] = useState('Pcs');
+    const [satuan, setSatuan] = useState('pcs');
     const [satuanGudang, setSatuanGudang] = useState('');
     const [isiPerGudang, setIsiPerGudang] = useState('');
     const [stockMasuk, setStockMasuk] = useState('');
@@ -70,7 +70,7 @@ export default function FormBarangBaru({ id, onSubmit, daftarBarang }) {
                 <div className="d-flex gap-2">
                     <Form.Group className="mb-2 flex-fill">
                         <Form.Label className="text-muted small mb-1">Satuan *</Form.Label>
-                        <Form.Control value={satuan} onChange={(e) => setSatuan(e.target.value)} placeholder="Pcs, gr, kg" />
+                        <Form.Control value={satuan} onChange={(e) => setSatuan(e.target.value)} placeholder="pcs, gr, kg" />
                     </Form.Group>
                     <Form.Group className="mb-2 flex-fill">
                         <Form.Label className="text-muted small mb-1">Satuan Gudang (opsional)</Form.Label>

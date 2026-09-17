@@ -53,14 +53,19 @@ function wajibGudang(req, res, next) {
 }
 
 // Sesi outlet: token sesi -> {tokenOutlet, exp} (terikat 1 link; restart = logout ulang).
+// Cookie per link (sesi_outlet_<token>): banyak link hidup berdampingan, login B tak menendang A.
 // Tutup tab = login ulang via flag sessionStorage di frontend (cookie HttpOnly 24 jam ditimpa saat masuk ulang).
 const sesiOutlet = new Map();
 const UMUR_SESI_OUTLET_MS = 24 * 3600 * 1000;
+function namaCookieOutlet(token) {
+  const t = String(token || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 32) || 'x';
+  return `sesi_outlet_${t}`;
+}
 function wajibOutlet(req, res, next) {
-  const tok = bacaCookie(req, 'sesi_outlet');
+  const tok = bacaCookie(req, namaCookieOutlet(req.params.token));
   const sesi = tok ? sesiOutlet.get(tok) : null;
+  // Mismatch/kedaluwarsa = 401 saja TANPA menghapus (sesi itu mungkin masih sah untuk link asalnya di tab sebelah).
   if (!tok || !sesi || sesi.exp < Date.now() || sesi.tokenOutlet !== String(req.params.token || '').trim()) {
-    if (tok) sesiOutlet.delete(tok);
     return res.status(401).json({ error: 'Login outlet dulu.' });
   }
   next();
@@ -69,5 +74,5 @@ function wajibOutlet(req, res, next) {
 module.exports = {
   hashKataSandi, cekKataSandi, kenaRate, bacaCookie,
   sesiGudang, UMUR_SESI_GUDANG_MS, wajibGudang,
-  sesiOutlet, UMUR_SESI_OUTLET_MS, wajibOutlet,
+  sesiOutlet, UMUR_SESI_OUTLET_MS, namaCookieOutlet, wajibOutlet,
 };

@@ -1,69 +1,52 @@
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import { Card, Form, Button } from 'react-bootstrap'
 import { ArrowDownCircle, ArrowUpCircle } from 'lucide-react'
 import { formatRibu, parseRibu } from '../../utils/formatRupiah'
 
-// Faktor terstruktur: 1 <satuanGudang> = <isiPerGudang> <satuan> (sama dgn backend).
-const ALIAS_SATUAN = {
-    gram: 'gr', grams: 'gr', g: 'gr', kilo: 'kg', kilogram: 'kg',
-    litre: 'liter', ltr: 'liter', l: 'liter',
-    pieces: 'pcs', piece: 'pcs', pc: 'pcs',
-};
-const normSatuan = (u) => ALIAS_SATUAN[String(u || '').trim().toLowerCase()] || String(u || '').trim().toLowerCase();
-const FAKTOR_METRIK = { 'kg>gr': 1000, 'gr>kg': 0.001, 'liter>ml': 1000, 'ml>liter': 0.001 };
-function faktorKonversi(isiPerGudang, gudangItem, dari, ke) {
-    const d = normSatuan(dari);
-    const k = normSatuan(ke);
-    if (!d || d === k) return 1;
-    if (FAKTOR_METRIK[`${d}>${k}`]) return FAKTOR_METRIK[`${d}>${k}`];
-    const n = Number(isiPerGudang);
-    if (d === normSatuan(gudangItem) && Number.isFinite(n) && n > 0) return n;
-    return null;
+// hitungAvg: avgBaru = (totalLama*avgLama + totalBayar) / (totalLama + qtyMasuk eceran).
+function hitungAvg(avgLama, totalLama, totalBayar, qtyMasuk) {
+    const t = Number(totalLama) || 0;
+    const q = Number(qtyMasuk) || 0;
+    const bayar = Number(totalBayar) || 0;
+    if (!(q > 0) || !(bayar > 0) || (t + q) <= 0) return null;
+    const nilaiLama = avgLama != null && avgLama !== '' ? t * Number(avgLama) : 0;
+    return (nilaiLama + bayar) / (t + q);
 }
+// Ribuan id-ID bulat untuk tampil (formatRibu merusak desimal avg, khusus input).
+const rpAvg = (n) => n == null ? '-' : Number(n).toLocaleString('id-ID', { maximumFractionDigits: 0 });
 
 export default function FormBarangSudahAda({ barang, onSubmit }) {
-    const satuanStock = barang.satuanEceran || 'Pcs';
-    const satuanGudang = barang.satuanGrosir || null;
+    const satuanStock = barang.satuanEceran || 'pcs';
     const [jumlah, setJumlah] = useState(1)
-    const [satuanInput, setSatuanInput] = useState(satuanStock)
     const [totalBayar, setTotalBayar] = useState('')
 
-    const faktor = useMemo(
-        () => faktorKonversi(barang.isiPerGudang, satuanGudang, satuanInput, satuanStock),
-        [barang.isiPerGudang, satuanGudang, satuanInput, satuanStock]
-    );
-    const jumlahKonversi = faktor == null ? null : Number(jumlah) * faktor;
+    const jumlahKonversi = Number(jumlah);
 
-    const keterangan = jumlahKonversi == null
-        ? `Tak ada konversi ${satuanInput} → ${satuanStock}. Lengkapi Isi per Satuan Gudang.`
-        : faktor !== 1
-            ? `${jumlah} ${satuanInput} = ${jumlahKonversi} ${satuanStock}`
-            : `${jumlahKonversi} ${satuanStock}`;
+    const keterangan = `${jumlahKonversi} ${satuanStock}`;
 
-    const stockJadiMasuk = jumlahKonversi == null ? null : barang.stock + jumlahKonversi
-    const stockJadiKeluar = jumlahKonversi == null ? null : barang.stock - jumlahKonversi
-    const keluarTidakValid = jumlahKonversi == null || stockJadiKeluar < 0
+    const stockJadiMasuk = barang.stock + jumlahKonversi
+    const stockJadiKeluar = barang.stock - jumlahKonversi
+    const keluarTidakValid = !(jumlahKonversi > 0) || stockJadiKeluar < 0
+
+    const avgLama = barang.hargaBarang != null ? Number(barang.hargaBarang) : null;
+    const bayar = parseRibu(totalBayar);
+    const avgBaru = (jumlahKonversi != null && jumlahKonversi > 0 && bayar > 0)
+        ? hitungAvg(avgLama, barang.stock, bayar, jumlahKonversi)
+        : null;
 
     return (
         <Card className="shadow-sm border-0 mb-3" style={{ borderRadius: '12px' }}>
             <Card.Body>
                 <p className="fw-bold mb-1">Barang ditemukan</p>
-                <p className="text-muted small mb-3">
+                <p className="text-muted small mb-1">
                     ID: {barang.id} | {barang.nama} {barang.varian && `- ${barang.varian}`} ({barang.kategori}) | Stock saat ini: {barang.stock} {satuanStock}
+                </p>
+                <p className="text-muted small mb-3">
+                    Harga kini (avg): {avgLama != null ? `Rp ${rpAvg(avgLama)}` : 'Avg pertama (belum ada harga)'}
                 </p>
 
                 <Form.Group className="mb-3">
-                    <Form.Label className="text-muted small mb-1">Satuan Input</Form.Label>
-                    <Form.Select value={satuanInput} onChange={(e) => setSatuanInput(e.target.value)}>
-                        <option value={satuanStock}>{satuanStock}</option>
-                        {satuanGudang && satuanGudang.toLowerCase() !== satuanStock.toLowerCase() && (
-                            <option value={satuanGudang}>{satuanGudang}</option>
-                        )}
-                    </Form.Select>
-                </Form.Group>
-
-                <Form.Group className="mb-3">
-                    <Form.Label className="text-muted small mb-1">Jumlah</Form.Label>
+                    <Form.Label className="text-muted small mb-1">Jumlah ({satuanStock})</Form.Label>
                     <Form.Control
                         type="number"
                         inputMode="numeric"
@@ -88,12 +71,18 @@ export default function FormBarangSudahAda({ barang, onSubmit }) {
                     />
                 </Form.Group>
 
+                {avgBaru != null && (
+                    <p className="text-center fw-semibold small mb-3">
+                        Avg baru → Rp {rpAvg(avgBaru)} (dari {avgLama != null ? `Rp ${rpAvg(avgLama)}` : 'avg pertama'})
+                    </p>
+                )}
+
                 <div className="d-grid gap-2">
                     <Button
                         variant="success"
-                        disabled={jumlahKonversi == null}
+                        disabled={!(jumlahKonversi > 0)}
                         className="d-flex align-items-center justify-content-center gap-2"
-                        onClick={() => onSubmit('Masuk', jumlah, satuanInput, parseRibu(totalBayar))}
+                        onClick={() => onSubmit('Masuk', jumlahKonversi, satuanStock, parseRibu(totalBayar))}
                     >
                         <ArrowDownCircle size={18} /> Barang Masuk
                         <span className="small">(jadi {stockJadiMasuk} {satuanStock})</span>
@@ -103,11 +92,11 @@ export default function FormBarangSudahAda({ barang, onSubmit }) {
                         variant="danger"
                         disabled={keluarTidakValid}
                         className="d-flex align-items-center justify-content-center gap-2"
-                        onClick={() => onSubmit('Keluar', jumlah, satuanInput)}
+                        onClick={() => onSubmit('Keluar', jumlahKonversi, satuanStock)}
                     >
                         <ArrowUpCircle size={18} /> Barang Keluar
                         <span className="small">
-                            {keluarTidakValid ? '(stock tidak cukup)' : `(jadi ${stockJadiKeluar} ${satuanStock})`}
+                            {keluarTidakValid ? '(stock tidak cukup)' : `(jadi ${stockJadiKeluar} ${satuanStock}${avgLama != null ? ` • avg tetap Rp ${rpAvg(avgLama)}` : ''})`}
                         </span>
                     </Button>
                 </div>

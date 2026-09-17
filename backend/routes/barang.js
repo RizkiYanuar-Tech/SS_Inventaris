@@ -4,7 +4,7 @@ const router = express.Router();
 const { sb, nowIso, kurangStock } = require('../../db');
 const { wajibGudang } = require('../lib/auth');
 const { formatWaktuBukti } = require('../lib/waktu');
-const { parseKonversi, hitungAvg } = require('../lib/konversi');
+const { hitungAvg, kanonikSatuan } = require('../lib/konversi');
 const { buatIdBarang, catatTransaksi, cekThreshold } = require('../lib/data');
 
 router.get("/api/barang", wajibGudang, async (req, res) => {
@@ -18,8 +18,8 @@ router.get("/api/barang", wajibGudang, async (req, res) => {
       kategori: row.kategori || '',
       stock: Number(row.total),
       threshold: Number(row.minimum_stock),
-      satuanEceran: row.satuan || 'Pcs',
-      satuanGrosir: row.satuan_gudang || null,
+      satuanEceran: row.satuan ? kanonikSatuan(row.satuan) : 'pcs',
+      satuanGrosir: row.satuan_gudang ? kanonikSatuan(row.satuan_gudang) : null,
       isiPerGrosir: row.isi_per_gudang != null ? Number(row.isi_per_gudang) : null,
       hargaBarang: row.harga_barang != null ? Number(row.harga_barang) : null,
       keterangan: row.keterangan || '',
@@ -44,7 +44,7 @@ router.get("/api/transaksi", wajibGudang, async(req, res) => {
       varian: row.varian,
       jenis: row.jenis,
       jumlah: Number(row.jumlah),
-      satuan: row.satuan || 'Pcs',
+      satuan: row.satuan ? kanonikSatuan(row.satuan) : 'pcs',
       idKirim: row.id_kirim || '',
       dibuatPada: row.dibuat_pada || null,
       hargaSatuan: row.harga_satuan != null ? Number(row.harga_satuan) : null,
@@ -66,7 +66,10 @@ router.post('/api/tambahBarangBaru', wajibGudang, async (req, res) => {
     if (!namaBersih) {
       return res.status(400).json({ sukses: false, pesan: 'Nama Barang wajib diisi.' });
     }
-    const satuan = String(satuanEceran || 'Pcs').trim() || 'Pcs';
+    const satuan = kanonikSatuan(satuanEceran) || 'pcs';
+    if (!satuan) {
+      return res.status(400).json({ sukses: false, pesan: 'Satuan tidak boleh kosong.' });
+    }
     if (isiPerGudang != null && isiPerGudang !== '' && !(Number(isiPerGudang) > 0)) {
       return res.status(400).json({ sukses: false, pesan: 'Isi per Satuan Gudang harus angka > 0 bila diisi.' });
     }
@@ -106,18 +109,13 @@ router.post('/api/tambahBarangBaru', wajibGudang, async (req, res) => {
       total: Number(jumlah) || 0,
       minimum_stock: Number(restock) || 5,
       satuan,
-      satuan_gudang: satuanGudang || '',
+      satuan_gudang: kanonikSatuan(satuanGudang) || '',
       isi_per_gudang: isiPerGudang != null && isiPerGudang !== '' ? Number(isiPerGudang) : null,
       keterangan: keterangan || '',
       dibuat_pada: nowIso(),
       ...(Number(jumlah) > 0 && Number(totalBayar) > 0 ? { harga_barang: Number(totalBayar) / Number(jumlah) } : {}),
     });
-    if (ins.error) {
-      if (/harga_barang/i.test(ins.error.message || '')) {
-        throw new Error('Kolom harga_barang belum ada. Jalankan migrasi_harga_barang.sql di Supabase dulu, lalu ulangi.');
-      }
-      throw new Error(ins.error.message);
-    }
+    if (ins.error) throw new Error(ins.error.message);
 
     await catatTransaksi(idPakai, namaBersih, varian, kategoriSimpan, 'Masuk', Number(jumlah) || 0, satuan,
       Number(jumlah) > 0 && Number(totalBayar) > 0 ? Number(totalBayar) / Number(jumlah) : null);
@@ -162,16 +160,17 @@ router.put('/api/barang/:id', wajibGudang, async (req, res) => {
       patch.minimum_stock = Number(restock);
     }
     if (satuanEceran !== undefined) {
-      const satuanBaru = String(satuanEceran || '').trim();
+      const satuanBaru = kanonikSatuan(satuanEceran);
       if (!satuanBaru) return res.status(400).json({ sukses: false, pesan: 'Satuan tidak boleh kosong.' });
-      if (satuanBaru !== (ada.data.satuan || 'Pcs')) {
-        if (konfirmasiSatuan !== satuanBaru) {
+      const satuanLama = kanonikSatuan(ada.data.satuan) || 'pcs';
+      if (satuanBaru !== satuanLama) {
+        if (kanonikSatuan(konfirmasiSatuan) !== satuanBaru) {
           return res.status(400).json({ sukses: false, pesan: `Ketik ulang "${satuanBaru}" persis untuk ganti satuan. Stock ${ada.data.total} ikut berubah makna menjadi ${satuanBaru}.` });
         }
         patch.satuan = satuanBaru;
       }
     }
-    if (satuanGudang !== undefined) patch.satuan_gudang = String(satuanGudang || '').trim();
+    if (satuanGudang !== undefined) patch.satuan_gudang = kanonikSatuan(satuanGudang) || '';
     if (isiPerGudang !== undefined) {
       if (isiPerGudang === '' || isiPerGudang == null) patch.isi_per_gudang = null;
       else {
@@ -240,18 +239,14 @@ router.post('/api/prosesTransaksi', wajibGudang, async (req, res) => {
       return res.json({ sukses: false, pesan: 'Barang tidak ditemukan di database.' });
     }
 
-    const satuanEceran = row.satuan || 'Pcs';
-    const satuanMinta = String(satuanInput || satuanEceran).trim() || satuanEceran;
-
-    const jumlahInput = Number(jumlah);
-    let faktor = 1;
+    // Eceran-saja: frontend (kalkulator) yang mengalikan dus -> eceran.
+    const satuanEceran = kanonikSatuan(row.satuan) || 'pcs';
+    const satuanMinta = kanonikSatuan(satuanInput) || satuanEceran;
     if (satuanMinta.toLowerCase() !== satuanEceran.toLowerCase()) {
-      faktor = parseKonversi(row.isi_per_gudang, row.satuan_gudang, satuanMinta, satuanEceran);
-      if (!faktor) {
-        return res.json({ sukses: false, pesan: `Tak ada konversi ${satuanMinta} → ${satuanEceran}. Lengkapi Isi per Satuan Gudang di data barang.` });
-      }
+      return res.json({ sukses: false, pesan: `Kirim dalam ${satuanEceran} (sistem eceran-saja).` });
     }
-    const jmlh = jumlahInput * faktor;
+
+    const jmlh = Number(jumlah);
 
     let stockBaru = Number(row.total);
     let avgBaru = row.harga_barang != null ? Number(row.harga_barang) : null;
@@ -268,12 +263,7 @@ router.post('/api/prosesTransaksi', wajibGudang, async (req, res) => {
       avgBaru = hitungAvg(avgBaru, stockBaru, bayar, jmlh);
       hargaSatuanTrx = bayar / jmlh;
       const up = await sb.from('barang_inventory').update({ total: stockBaru + jmlh, harga_barang: avgBaru }).eq('id_barang', row.id_barang).select('total');
-      if (up.error) {
-        if (/harga_barang/i.test(up.error.message || '')) {
-          return res.json({ sukses: false, pesan: 'Kolom harga_barang belum ada. Jalankan migrasi_harga_barang.sql di Supabase dulu, lalu ulangi.' });
-        }
-        throw new Error(up.error.message);
-      }
+      if (up.error) throw new Error(up.error.message);
       stockBaru = Number(up.data[0].total);
     } else if (jenis === 'Keluar') {
       if (jmlh > stockBaru) {
@@ -289,9 +279,7 @@ router.post('/api/prosesTransaksi', wajibGudang, async (req, res) => {
       return res.json({ sukses: false, pesan: 'Jenis transaksi tidak valid.' });
     }
 
-    const keteranganSatuan = faktor !== 1
-      ? `${jumlahInput} ${satuanMinta} (= ${jmlh} ${satuanEceran})`
-      : `${jmlh} ${satuanEceran}`;
+    const keteranganSatuan = `${jmlh} ${satuanEceran}`;
 
     await catatTransaksi(row.id_barang,
                         row.nama_barang,

@@ -48,3 +48,12 @@
   .app-root { padding-bottom: 0 !important; }
   .surat-jalan { max-width: none; }
 }
+
+/* BottomNav gudang: warna identitas per tab (hover + aktif + fokus keyboard). */
+.bnav-item { color: #6c757d; }
+.bnav-item:hover, .bnav-item:focus-visible { color: var(--aksen); }
+.bnav-item.bnav-aktif { color: var(--aksen); }
+.bnav-item.bnav-aktif::before {
+  content: ''; position: absolute; top: -9px; left: 50%; transform: translateX(-50%);
+  width: 24px; height: 4px; border-radius: 999px; background: var(--aksen);
+}

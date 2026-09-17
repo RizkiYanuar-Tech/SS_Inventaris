@@ -60,7 +60,6 @@ export default function UnduhAsetModal({ show, onTutup, barang, transaksi }) {
                                 <th className='text-end'>Stock</th>
                                 <th className='text-end'>Harga</th>
                                 <th className='text-end'>Total</th>
-                                <th>Status</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -70,11 +69,10 @@ export default function UnduhAsetModal({ show, onTutup, barang, transaksi }) {
                                     <td className='text-end'>{r.stock} {r.satuan}</td>
                                     <td className='text-end'>{r.harga != null ? rp(r.harga) : '-'}</td>
                                     <td className='text-end'>{r.total != null ? rp(r.total) : '-'}</td>
-                                    <td>{r.status}</td>
                                 </tr>
                             ))}
                             {tampil.length === 0 && (
-                                <tr><td colSpan={5} className='text-center text-muted'>
+                                <tr><td colSpan={4} className='text-center text-muted'>
                                     Kosong (sebelum data pertama masuk).
                                 </td></tr>
                             )}

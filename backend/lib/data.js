@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const { sb, nowIso, kurangStock } = require('../../db');
 const { jakartaParts, formatWaktuBukti } = require('./waktu');
 const { buatRingkasanKirim, tambahRiwayat } = require('./ringkas');
-const { parseKonversi } = require('./konversi');
+const { parseKonversi, kanonikSatuan } = require('./konversi');
 
 async function initDb() {
   for (const t of ['barang_inventory', 'transaksi', 'pesanan', 'pengiriman', 'outlet']) {
@@ -155,7 +155,7 @@ async function catatTransaksi(id, nama, varian, kategori, jenis_transaksi, jumla
       kategori_bahan: kategori || '',
       jenis: jenis_transaksi,
       jumlah: Number(jumlah),
-      satuan: satuan || 'Pcs',
+      satuan: kanonikSatuan(satuan) || 'pcs',
       dibuat_pada: nowIso(),
     };
     if (pakaiHarga && hargaSatuan != null && hargaSatuan !== '') baris.harga_satuan = Number(hargaSatuan);
@@ -269,8 +269,8 @@ async function buatPengiriman(outlet, items, idPesan = null) {
   for (const it of items) {
     const row = ref.data.find(r => String(r.id_barang).trim() === String(it.id || '').trim());
     if (!row) throw new Error(`ID ${it.id} tidak ditemukan di database.`);
-    const satuanRow = row.satuan || 'Pcs';
-    const satuanMinta = String(it.satuan || satuanRow).trim() || satuanRow;
+    const satuanRow = kanonikSatuan(row.satuan) || 'pcs';
+    const satuanMinta = kanonikSatuan(it.satuan) || satuanRow;
     let faktor = 1;
     if (satuanMinta.toLowerCase() !== satuanRow.toLowerCase()) {
       faktor = parseKonversi(row.isi_per_gudang, row.satuan_gudang, satuanMinta, satuanRow);
@@ -301,7 +301,7 @@ async function buatPengiriman(outlet, items, idPesan = null) {
       const hasil = await kurangStock(row.id_barang, qty);
       if (!hasil.ok) throw new Error(`Stock ${row.nama_barang} berubah saat diproses (sisa ${hasil.sisa}). Ulangi.`);
       const idTrx = await catatTransaksi(row.id_barang, row.nama_barang, row.merk,
-        row.kategori, 'Keluar', qty, row.satuan || 'Pcs',
+        row.kategori, 'Keluar', qty, kanonikSatuan(row.satuan) || 'pcs',
         row.harga_barang != null ? Number(row.harga_barang) : null, idKirim);
       jejak.push({ id_transaksi: idTrx, id_barang: row.id_barang, qty });
       await cekThreshold(row.id_barang, row.nama_barang,

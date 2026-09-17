@@ -2,9 +2,10 @@ const express = require('express');
 const crypto = require('crypto');
 const router = express.Router();
 const { sb, nowIso } = require('../../db');
-const { wajibGudang, wajibOutlet, sesiOutlet, UMUR_SESI_OUTLET_MS, hashKataSandi, cekKataSandi, kenaRate } = require('../lib/auth');
+const { wajibGudang, wajibOutlet, sesiOutlet, UMUR_SESI_OUTLET_MS, namaCookieOutlet, hashKataSandi, cekKataSandi, kenaRate } = require('../lib/auth');
 const { jakartaParts, hitungSlot, formatWaktuBukti, pesanDibuka, PESAN_TUTUP } = require('../lib/waktu');
 const { buatRingkasan, tambahRiwayat } = require('../lib/ringkas');
+const { kanonikSatuan } = require('../lib/konversi');
 const {
   cariOutletByToken, buatIdPesan, pesananKeJson, cariPesanan, simpanPesanan,
   tulisNotifikasi, buatPengiriman,
@@ -38,7 +39,7 @@ router.get('/api/pesan/:token', wajibOutlet, async (req, res) => {
         id: b.id_barang,
         nama: b.nama_barang,
         varian: b.merk || '',
-        satuan: b.satuan || 'Pcs',
+        satuan: kanonikSatuan(b.satuan) || 'pcs',
         kategori: b.kategori || '',
       }));
     }
@@ -116,7 +117,7 @@ router.post('/api/pesan/:token', wajibOutlet, async (req, res) => {
         id: b.id_barang,
         nama: b.nama_barang,
         varian: b.merk || '',
-        satuan: b.satuan || 'Pcs',
+        satuan: kanonikSatuan(b.satuan) || 'pcs',
         qtyPesan: qty,
       });
     }
@@ -277,7 +278,7 @@ const SALAH_OUTLET = 'Username atau password salah.';
 function sesiOutletBaru(tokenOutlet, res) {
   const tok = crypto.randomBytes(32).toString('hex');
   sesiOutlet.set(tok, { tokenOutlet: String(tokenOutlet).trim(), exp: Date.now() + UMUR_SESI_OUTLET_MS });
-  res.setHeader('Set-Cookie', `sesi_outlet=${tok}; HttpOnly; Path=/; Max-Age=86400; SameSite=Lax`);
+  res.setHeader('Set-Cookie', `${namaCookieOutlet(tokenOutlet)}=${tok}; HttpOnly; Path=/; Max-Age=86400; SameSite=Lax`);
 }
 
 // Masuk: publik + rate-limit 10/mnt per slug+IP. NULL password + username cocok -> 401 {buatPertama:true}.

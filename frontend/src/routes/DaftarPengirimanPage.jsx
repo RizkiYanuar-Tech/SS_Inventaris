@@ -174,11 +174,12 @@ export default function DaftarPengirimanPage() {
         { id: 'baru', label: 'Baru', status: ['BARU'], fifo: true },
         { id: 'siap', label: 'Siap Kirim', status: ['DISETUJUI', 'DISETUJUI SEBAGIAN', 'SIAP KIRIM'], fifo: true },
         { id: 'dikirim', label: 'Dikirim', status: ['DIKIRIM'], fifo: true },
-        { id: 'selesai', label: 'Selesai', status: ['DITERIMA', 'DITERIMA SEBAGIAN', 'DITOLAK'], fifo: false },
+        { id: 'diterima', label: 'Diterima', status: ['DITERIMA', 'DITERIMA SEBAGIAN'], fifo: false },
+        { id: 'ditolak', label: 'Ditolak', status: ['DITOLAK'], fifo: false },
         { id: 'semua', label: 'Semua', status: null, fifo: false },
     ];
     const [fTab, setFTab] = useState('baru');
-    const tabAlur = TAB_ALUR.find(t => t.id === fTab) || TAB_ALUR[4];
+    const tabAlur = TAB_ALUR.find(t => t.id === fTab) || TAB_ALUR.find(t => t.id === 'semua');
     const hitungTab = (t) => pesanan.filter(p => !t.status || t.status.includes(p.status)).length;
     const [lStatus, setLStatus] = useState('Semua');
     const [lOutlet, setLOutlet] = useState('Semua');

@@ -6,6 +6,8 @@ const ALIAS_SATUAN = {
   pieces: 'pcs', piece: 'pcs', pc: 'pcs',
 };
 const normSatuan = (u) => ALIAS_SATUAN[String(u || '').trim().toLowerCase()] || String(u || '').trim().toLowerCase();
+// Kanonik tampil = norm (huruf-kecil + alias). pcs/Pcs/PCS/pc -> pcs.
+const kanonikSatuan = (u) => normSatuan(u);
 const FAKTOR_METRIK = { 'kg>gr': 1000, 'gr>kg': 0.001, 'liter>ml': 1000, 'ml>liter': 0.001 };
 function parseKonversi(isiPerGudang, gudangItem, dari, ke) {
   const d = normSatuan(dari);
@@ -28,4 +30,4 @@ function hitungAvg(avgLama, totalLama, totalBayar, qtyMasuk) {
   return (nilaiLama + bayar) / (t + q);
 }
 
-module.exports = { ALIAS_SATUAN, normSatuan, FAKTOR_METRIK, parseKonversi, hitungAvg };
+module.exports = { ALIAS_SATUAN, normSatuan, kanonikSatuan, FAKTOR_METRIK, parseKonversi, hitungAvg };

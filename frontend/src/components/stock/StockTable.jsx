@@ -68,7 +68,8 @@ function EditForm({ item, opsiKategoriList, onSelesai }) {
     const [tampilSatuan, setTampilSatuan] = useState(false);
     const [err, setErr] = useState('');
     const set = (k) => (e) => setF(prev => ({ ...prev, [k]: e.target.value }));
-    const gantiSatuan = f.satuanBaru.trim() !== '' && f.satuanBaru.trim() !== (item.satuanEceran || 'Pcs');
+    const normSatuanLokal = (u) => String(u || '').trim().toLowerCase();
+    const gantiSatuan = f.satuanBaru.trim() !== '' && normSatuanLokal(f.satuanBaru) !== normSatuanLokal(item.satuanEceran || 'pcs');
 
     async function submit() {
         setErr('');
@@ -344,6 +345,24 @@ export default function StockTable({ items, semua, onBerubah, mode = 'kartu' }) 
                                 <span className="text-muted small ms-auto">dari batas {item.threshold} {item.satuanEceran}</span>
                             </div>
                             <StripUkur jumlahStock={item.stock} reStock={item.threshold} />
+                            {item.hargaBarang != null ? (
+                                <div className="mt-2 pt-2" style={{ borderTop: '1px solid #e9ecef' }}>
+                                    <div className="d-flex flex-wrap justify-content-between align-items-baseline gap-2">
+                                        <span className="text-muted small">
+                                            Harga <strong className="text-dark" style={{ fontVariantNumeric: 'tabular-nums' }}>Rp {rp(item.hargaBarang)}</strong>/{item.satuanEceran}
+                                        </span>
+                                        <span className="small text-muted">
+                                            Total <strong style={{ color: '#147A4A', fontVariantNumeric: 'tabular-nums' }}>
+                                                Rp {rp(Number(item.stock) * Number(item.hargaBarang))}
+                                            </strong>
+                                        </span>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="mt-2 pt-2 small text-muted" style={{ borderTop: '1px solid #e9ecef' }}>
+                                    Belum ada harga — isi via Edit atau Barang Masuk.
+                                </div>
+                            )}
                             <Collapse in={buka}>
                                 <div>
                                     {buka && <EditForm item={item} opsiKategoriList={daftarKategori} onSelesai={(s, pesan) => {

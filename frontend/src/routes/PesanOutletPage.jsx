@@ -326,7 +326,7 @@ export default function PesanOutletPage() {
         const aktif = STATUS_AKTIF.includes(s);
         if (filter === 'Aktif') return aktif;
         if (filter === 'Diterima') return s === 'DITERIMA' || s === 'DITERIMA SEBAGIAN';
-        if (filter === 'Batal') return s === 'DITOLAK';
+        if (filter === 'Ditolak') return s === 'DITOLAK';
         return true;
     });
     // Pagination Riwayat 5/halaman (pola sama dengan Surat Jalan)
@@ -506,7 +506,7 @@ export default function PesanOutletPage() {
             {tab === 'riwayat' && (
                 <div>
                     <div className='outlet-filter'>
-                        {['Aktif', 'Diterima', 'Batal', 'Semua'].map(f => (
+                        {['Aktif', 'Diterima', 'Ditolak', 'Semua'].map(f => (
                             <Button key={f} size='sm' variant={filter === f ? 'dark' : 'outline-secondary'} onClick={() => { setFilter(f); setHalRiwayat(1); }}>
                                 {f}
                             </Button>

@@ -1,6 +1,6 @@
 import Card from 'react-bootstrap/Card'
 
-export default function SummaryCard({ icon: Icon, iconColor, label, value, unit, sub, rel, onKlik }) {
+export default function SummaryCard({ icon: Icon, iconColor, label, value, unit, sub, rel, onKlik, ukuran = 'fs-2' }) {
     const bisaKlik = typeof onKlik === 'function';
     return (
         <Card bg='light' className='shadow-sm border-0 h-100' style={{ borderRadius: '12px', ...(rel ? { borderLeft: `4px solid ${rel}` } : {}), ...(bisaKlik ? { cursor: 'pointer' } : {}) }}
@@ -27,7 +27,7 @@ export default function SummaryCard({ icon: Icon, iconColor, label, value, unit,
 
                 <div>
                     <div className='d-flex align-items-baseline gap-2 flex-wrap'>
-                        <h3 className='fw-bolder mb-0 text-dark fs-2' style={{ fontVariantNumeric: 'tabular-nums' }}>{value}</h3>
+                        <h3 className={`fw-bolder mb-0 text-dark ${ukuran}`} style={{ fontVariantNumeric: 'tabular-nums', overflowWrap: 'anywhere' }}>{value}</h3>
                         {unit && <span className='text-muted small fw-medium'>{unit}</span>}
                     </div>
                     {sub && <div className='text-muted small mt-1'>{sub}</div>}

@@ -6,6 +6,7 @@ const { sb, nowIso, kurangStock } = require('../../db');
 const { wajibGudang } = require('../lib/auth');
 const { jakartaParts } = require('../lib/waktu');
 const { catatTransaksi } = require('../lib/data');
+const { kanonikSatuan } = require('../lib/konversi');
 
 async function buatIdSesi() {
   const today = jakartaParts(new Date()).ymd.replaceAll('-', '');
@@ -68,7 +69,7 @@ router.get('/api/opname/:id', wajibGudang, async (req, res) => {
         id: x.id_barang,
         nama: b ? b.nama_barang : x.id_barang,
         merk: b ? (b.merk || '') : '',
-        satuan: b ? (b.satuan || 'Pcs') : 'Pcs',
+        satuan: b ? (kanonikSatuan(b.satuan) || 'pcs') : 'pcs',
         ada: !!b,
         sistem: Number(x.sistem_qty),
         harga: x.sistem_harga != null ? Number(x.sistem_harga) : null,
@@ -197,14 +198,14 @@ router.post('/api/opname/:id/putus', wajibGudang, async (req, res) => {
           return res.status(409).json({ sukses: false, pesan: `Stock ${row.nama_barang} berubah saat diproses (sisa ${hasil.sisa}). Ulangi putus — yang sudah masuk aman (idempoten).` });
         }
         await catatTransaksi(row.id_barang, row.nama_barang, row.merk, row.kategori,
-          'Keluar', -selisih, row.satuan || 'Pcs', avg, null, jejak);
+          'Keluar', -selisih, kanonikSatuan(row.satuan) || 'pcs', avg, null, jejak);
         keluar++;
       } else {
         const baru = Number(row.total) + selisih;
         const up = await sb.from('barang_inventory').update({ total: baru }).eq('id_barang', row.id_barang).select('total');
         if (up.error) throw new Error(up.error.message);
         await catatTransaksi(row.id_barang, row.nama_barang, row.merk, row.kategori,
-          'Masuk', selisih, row.satuan || 'Pcs', avg, null, jejak);
+          'Masuk', selisih, kanonikSatuan(row.satuan) || 'pcs', avg, null, jejak);
         masuk++;
       }
     }
