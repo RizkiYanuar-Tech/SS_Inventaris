@@ -14,10 +14,8 @@ export default function FormBarangBaru({ id, onSubmit, daftarBarang }) {
     const [satuanGudang, setSatuanGudang] = useState('');
     const [isiPerGudang, setIsiPerGudang] = useState('');
     const [stockMasuk, setStockMasuk] = useState('');
-    const [divisi, setDivisi] = useState('');
     const [keterangan, setKeterangan] = useState('');
     const [minimum, setMinimum] = useState(5);
-    const [istilah, setIstilah] = useState('');
     const [totalBayar, setTotalBayar] = useState('');
     const [errorMsg, setErrorMsg] = useState(null);
     const daftarKategori = useMemo(() => opsiKategori(daftarBarang), [daftarBarang]);
@@ -26,8 +24,6 @@ export default function FormBarangBaru({ id, onSubmit, daftarBarang }) {
         if (!nama.trim()) { setErrorMsg('Nama Barang wajib diisi.'); return; }
         if (!kategori.trim()) { setErrorMsg('Kategori Bahan wajib diisi.'); return; }
         if (!satuan.trim()) { setErrorMsg('Satuan wajib diisi.'); return; }
-        if (!satuanGudang.trim()) { setErrorMsg('Satuan Gudang wajib diisi.'); return; }
-        if (!divisi.trim()) { setErrorMsg('Divisi wajib diisi.'); return; }
         if (!(Number(stockMasuk) > 0)) { setErrorMsg('Stock Masuk harus angka > 0.'); return; }
         if (!(Number(totalBayar) > 0)) { setErrorMsg('Total bayar (Rp) wajib diisi.'); return; }
         if (isiPerGudang !== '' && !(Number(isiPerGudang) > 0)) { setErrorMsg('Isi per Satuan Gudang harus angka > 0 bila diisi.'); return; }
@@ -43,9 +39,7 @@ export default function FormBarangBaru({ id, onSubmit, daftarBarang }) {
             satuanEceran: satuan.trim(),
             satuanGudang: satuanGudang.trim(),
             isiPerGudang: isiPerGudang === '' ? null : Number(isiPerGudang),
-            divisi: divisi.trim(),
             keterangan: keterangan.trim(),
-            istilah: istilah.trim(),
         });
     }
 
@@ -63,8 +57,8 @@ export default function FormBarangBaru({ id, onSubmit, daftarBarang }) {
                 </Form.Group>
 
                 <Form.Group className="mb-2">
-                    <Form.Label className="text-muted small mb-1">Varian</Form.Label>
-                    <Form.Control value={varian} onChange={(e) => setVarian(e.target.value)} placeholder="Rasa Coklat, 250ml" />
+                    <Form.Label className="text-muted small mb-1">Merk</Form.Label>
+                    <Form.Control value={varian} onChange={(e) => setVarian(e.target.value)} placeholder="Anchor, Amidis (kosongkan bila tanpa merk)" />
                 </Form.Group>
 
                 <Form.Group className="mb-2">
@@ -79,8 +73,8 @@ export default function FormBarangBaru({ id, onSubmit, daftarBarang }) {
                         <Form.Control value={satuan} onChange={(e) => setSatuan(e.target.value)} placeholder="Pcs, gr, kg" />
                     </Form.Group>
                     <Form.Group className="mb-2 flex-fill">
-                        <Form.Label className="text-muted small mb-1">Satuan Gudang *</Form.Label>
-                        <Form.Control value={satuanGudang} onChange={(e) => setSatuanGudang(e.target.value)} placeholder="Botol, Karung" />
+                        <Form.Label className="text-muted small mb-1">Satuan Gudang (opsional)</Form.Label>
+                        <Form.Control value={satuanGudang} onChange={(e) => setSatuanGudang(e.target.value)} placeholder="Dus, Pack (kosongkan bila tanpa kemasan)" />
                     </Form.Group>
                 </div>
 
@@ -101,18 +95,8 @@ export default function FormBarangBaru({ id, onSubmit, daftarBarang }) {
                 </div>
 
                 <Form.Group className="mb-2">
-                    <Form.Label className="text-muted small mb-1">Divisi *</Form.Label>
-                    <Form.Control value={divisi} onChange={(e) => setDivisi(e.target.value)} placeholder="KITCHEN / BAR" />
-                </Form.Group>
-
-                <Form.Group className="mb-2">
                     <Form.Label className="text-muted small mb-1">Keterangan</Form.Label>
-                    <Form.Control value={keterangan} onChange={(e) => setKeterangan(e.target.value)} placeholder="cth: 1 pack = 1000 gram (wajib bila satuan ganda)" />
-                </Form.Group>
-
-                <Form.Group className="mb-3">
-                    <Form.Label className="text-muted small mb-1">Istilah Data Resep</Form.Label>
-                    <Form.Control value={istilah} onChange={(e) => setIstilah(e.target.value)} placeholder="Nama alternatif (cth: Baso)" />
+                    <Form.Control value={keterangan} onChange={(e) => setKeterangan(e.target.value)} placeholder="cth: 250 gr, botol 750ml (opsional)" />
                 </Form.Group>
 
                 <Form.Group className="mb-3">

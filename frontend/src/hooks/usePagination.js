@@ -3,11 +3,13 @@ import { useState } from 'react'
 export function usePagination(dataArray, itemsPerPage=10){
     const [currentPage, setCurrentPage] = useState(1);
     const totalPages = Math.ceil(dataArray.length / itemsPerPage);
-    const indexLastItem = currentPage * itemsPerPage;
+    // Jepit bila halaman meluber (ganti mode/filter menyusutkan total).
+    const hal = Math.min(currentPage, Math.max(1, totalPages));
+    const indexLastItem = hal * itemsPerPage;
     const currentItems = dataArray.slice(indexLastItem - itemsPerPage, indexLastItem);
 
-    const nextPage = () => currentPage < totalPages && setCurrentPage(prev => prev + 1);
-    const prevPage = () => currentPage > 1 && setCurrentPage(prev => prev - 1);
+    const nextPage = () => { if (hal < totalPages) setCurrentPage(hal + 1); };
+    const prevPage = () => { if (hal > 1) setCurrentPage(hal - 1); };
 
-    return { currentItems, currentPage,  totalPages, nextPage, prevPage};
+    return { currentItems, currentPage: hal,  totalPages, nextPage, prevPage};
 }

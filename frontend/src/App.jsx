@@ -9,6 +9,7 @@ import TerimaBarangPage from './routes/TerimaBarangPage'
 import PesanOutletPage from './routes/PesanOutletPage'
 import GudangMasukPage from './routes/GudangMasukPage'
 import SuratJalanPrintPage from './routes/SuratJalanPrintPage'
+import OpnamePage from './routes/OpnamePage'
 import RequireGudang from './components/layout/RequireGudang'
 import BottomNav from './components/layout/BottomNav'
 import './App.css'
@@ -38,6 +39,7 @@ function App() {
         <Route path='/input' element={<RequireGudang><InputManualPage /></RequireGudang>}></Route>
         <Route path='/transaksi-barang' element={<RequireGudang><TransaksiBarangPage /></RequireGudang>}></Route>
         <Route path='/pesanan' element={<RequireGudang><DaftarPengirimanPage /></RequireGudang>}></Route>
+        <Route path='/opname' element={<RequireGudang><OpnamePage /></RequireGudang>}></Route>
         <Route path='/surat-jalan/:idKirim' element={<RequireGudang><SuratJalanPrintPage /></RequireGudang>}></Route>
       </Routes>
       {!tanpaNav && <BottomNav />}

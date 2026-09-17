@@ -4,7 +4,7 @@ import { Container, Card, Button, Badge, Modal, Form, Tabs, Tab, InputGroup, Col
 import { Eye, EyeOff } from 'lucide-react';
 import {
     fetchPengiriman, batalkanPengiriman,
-    fetchPesanan, putusPesanan, fetchOutlet, resetLinkOutlet,
+    fetchPesanan, putusPesanan, fetchOutlet, setUsernameOutlet, resetPasswordOutlet,
     setPasswordGudang, fetchNotifikasi,
 } from '../api/client';
 import LoncengGudang from '../components/layout/LoncengGudang';
@@ -187,13 +187,29 @@ export default function DaftarPengirimanPage() {
 
     // load pesanan baru; sesi gudang mati (401) -> lempar ke halaman masuk.
     // Guard anti-tumpuk: tick baru dilewati bila siklus sebelumnya belum selesai.
+    // Hemat render: state hanya diganti bila signature (id+status) berubah —
+    // poll 20 dtk tanpa perubahan data = tanpa render ulang = tanpa kedip.
     const sedangMuat = useRef(false);
+    const sigBear = useRef({ p: '', k: '', o: '', n: -1 });
+    const sig = (arr, kunci) => (arr || []).map(x => kunci(x)).join('|');
     async function muat(senyap=false) {
         if (sedangMuat.current) return;
         sedangMuat.current = true;
         try {
             const [p, k, o, n] = await Promise.all([fetchPesanan(), fetchPengiriman(), fetchOutlet(), fetchNotifikasi()]);
-            setPesanan(p); setKiriman(k); setOutlets(o); setNotifikasi(n); setError(null);
+            const s = {
+                p: sig(p, x => `${x.idPesan}:${x.status}`),
+                k: sig(k, x => `${x.idKirim}:${x.status}:${x.token ? 1 : ''}`),
+                o: sig(o, x => `${x.slug}:${x.username || ''}:${x.punyaPassword ? 1 : ''}`),
+                n: n ? n.belumBaca : -1,
+            };
+            const lama = sigBear.current;
+            if (s.p !== lama.p) setPesanan(p);
+            if (s.k !== lama.k) setKiriman(k);
+            if (s.o !== lama.o) setOutlets(o);
+            if (s.n !== lama.n) setNotifikasi(n);
+            sigBear.current = s;
+            setError(null);
         } catch (e) {
             if (/login gudang/i.test(e.message || '')) {
                 sessionStorage.removeItem('gudang-masuk');
@@ -289,12 +305,34 @@ export default function DaftarPengirimanPage() {
         setModal({ show: true, sukses: true, pesan });
     }
 
-    async function resetLink(slug, nama) {
-        if (!window.confirm(`Reset link ${nama}? Link lama akan mati.`)) return;
+    // Kelola akun outlet: username set SEKALI (terkunci permanen) + reset password kapan saja.
+    const [kelolaSlug, setKelolaSlug] = useState(null);
+    const [uBaru, setUBaru] = useState('');
+    const [pBaru1, setPBaru1] = useState('');
+    const [pBaru2, setPBaru2] = useState('');
+    const [lihatKO, setLihatKO] = useState(false); // 1 toggle untuk kedua kolom password outlet
+    function resetKelola() { setKelolaSlug(null); setUBaru(''); setPBaru1(''); setPBaru2(''); }
+    async function simpanUsername(slug) {
         try {
-            const res = await resetLinkOutlet(slug);
+            const res = await setUsernameOutlet(slug, uBaru.trim());
+            resetKelola();
             muat();
-            setModal({ show: true, sukses: true, pesan: `${res.pesan} Link: ${window.location.origin}${res.link}` });
+            setModal({ show: true, sukses: true, pesan: res.pesan });
+        } catch (e) {
+            setModal({ show: true, sukses: false, pesan: e.message });
+        }
+    }
+    async function resetPassword(slug, nama) {
+        if (!pBaru1 && !pBaru2) {
+            setModal({ show: true, sukses: false, pesan: 'Isi password baru 2x dulu.' });
+            return;
+        }
+        if (!window.confirm(`Reset password ${nama}? Sampaikan password baru ke outlet.`)) return;
+        try {
+            const res = await resetPasswordOutlet(slug, pBaru1, pBaru2);
+            resetKelola();
+            muat();
+            setModal({ show: true, sukses: true, pesan: res.pesan });
         } catch (e) {
             setModal({ show: true, sukses: false, pesan: e.message });
         }
@@ -485,17 +523,51 @@ export default function DaftarPengirimanPage() {
                 <Tab eventKey='lainnya' title='Lainnya'>
                     <Card className='shadow-sm border-0 mb-3'>
                         <Card.Body className='py-2'>
-                            <div className='fw-bold small mb-2'>Kelola Link Outlet</div>
-                            {(outlets || []).map(o => (
-                                <div key={o.slug} className='d-flex justify-content-between align-items-center small border-top py-1 gap-2'>
-                                    <span className='text-truncate'>{o.outlet}</span>
-                                    <span className='d-flex gap-1 flex-shrink-0'>
-                                        <Button size='sm' variant='outline-primary'
-                                            onClick={() => salinTeks(`${window.location.origin}${o.link}`, 'Link pesan disalin.')}>Salin</Button>
-                                        <Button size='sm' variant='outline-danger' onClick={() => resetLink(o.slug, o.outlet)}>Reset</Button>
-                                    </span>
-                                </div>
-                            ))}
+                            <div className='fw-bold small mb-2'>Kelola Akun Outlet</div>
+                            {(outlets || []).map(o => {
+                                const buka = kelolaSlug === o.slug;
+                                return (
+                                    <div key={o.slug} className='small border-top py-1'>
+                                        <div className='d-flex justify-content-between align-items-center gap-2'>
+                                            <span className='text-truncate'>{o.outlet} <span className='text-muted'>• {o.username ? `@${o.username}` : '(tanpa username)'}</span></span>
+                                            <span className='d-flex gap-1 flex-shrink-0'>
+                                                <Button size='sm' variant='outline-primary'
+                                                    onClick={() => salinTeks(`${window.location.origin}${o.link}`, 'Link pesan disalin.')}>Salin</Button>
+                                                <Button size='sm' variant={buka ? 'secondary' : 'outline-secondary'}
+                                                    onClick={() => { buka ? resetKelola() : (resetKelola(), setKelolaSlug(o.slug)); }}>
+                                                    {buka ? 'Tutup' : 'Akun'}
+                                                </Button>
+                                            </span>
+                                        </div>
+                                        <Collapse in={buka}>
+                                            <div className='pt-2'>
+                                                {!o.username ? (
+                                                    <InputGroup size='sm' className='mb-1'>
+                                                        <Form.Control value={uBaru} onChange={e => setUBaru(e.target.value)}
+                                                            placeholder='Username baru (min 3, sekali saja)' />
+                                                        <Button variant='outline-success' onClick={() => simpanUsername(o.slug)}>Set</Button>
+                                                    </InputGroup>
+                                                ) : (
+                                                    <div className='text-muted mb-1'>Username <strong>@{o.username}</strong> terkunci{!o.punyaPassword && ' • outlet belum buat password'}.</div>
+                                                )}
+                                                <InputGroup size='sm' className='mb-1'>
+                                                    <Form.Control type={lihatKO ? 'text' : 'password'} value={pBaru1} onChange={e => setPBaru1(e.target.value)}
+                                                        placeholder='Password baru (min 4)' />
+                                                    <Button variant='outline-secondary' onClick={() => setLihatKO(v => !v)}
+                                                        aria-label={lihatKO ? 'Sembunyikan password' : 'Tampilkan password'}>
+                                                        {lihatKO ? <EyeOff size={16} /> : <Eye size={16} />}
+                                                    </Button>
+                                                </InputGroup>
+                                                <Form.Control size='sm' type={lihatKO ? 'text' : 'password'} value={pBaru2} onChange={e => setPBaru2(e.target.value)}
+                                                    placeholder='Ketik ulang password baru' className='mb-1' />
+                                                <Button size='sm' variant='outline-danger' onClick={() => resetPassword(o.slug, o.outlet)}>
+                                                    Reset password
+                                                </Button>
+                                            </div>
+                                        </Collapse>
+                                    </div>
+                                );
+                            })}
                         </Card.Body>
                     </Card>
 

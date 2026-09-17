@@ -4,7 +4,6 @@ import { Badge, Button, Dropdown } from 'react-bootstrap';
 import { Bell, Volume2, VolumeX } from 'lucide-react';
 import { bacaNotifikasi } from '../../api/client';
 
-// Bunyi 1 pola untuk semua peristiwa (Web Audio, tanpa aset).
 // Kembali false bila belum boleh bunyi (pra-gesture) — sunyi tanpa error.
 async function mainkanBunyi(ctxRef) {
     try {

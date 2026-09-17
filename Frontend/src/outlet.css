@@ -1,0 +1,156 @@
+/* Outlet pemesanan — bahasa visual "nota gudang": kertas hangat, tinta pekat,
+   satu aksen daun-dapur. Signature: bar pesanan bawah ala GoFood (1 jempol). */
+.outlet-wrap {
+  --kertas: #fffef9;
+  --tinta: #17202a;
+  --garis: #e8e1cf;
+  --daun: #147a4a;
+  --daun-tua: #0e5c38;
+  --kunyit-bg: #fff3c4;
+  --kunyit-tinta: #7a5200;
+  --cap: #be3a2b;
+  background: var(--kertas);
+  color: var(--tinta);
+  min-height: 100dvh;
+  padding-bottom: 32px; /* bar fixed sudah dicabut */
+}
+.outlet-kolom { max-width: 480px; margin-inline: auto; }
+
+/* Header nota — ringkas 1 layar HP */
+.outlet-nama {
+  font-weight: 800; letter-spacing: -0.02em; line-height: 1.05;
+  font-size: 1.4rem; text-transform: capitalize; margin: 0;
+}
+.outlet-jadwal {
+  display: flex; gap: 6px; flex-wrap: wrap; justify-content: center;
+  font-size: 12px; color: #5b6470;
+}
+.outlet-jadwal .chip {
+  border: 1px solid var(--garis); border-radius: 999px;
+  padding: 3px 10px; background: #fff; white-space: nowrap;
+}
+.outlet-aksi { display: flex; gap: 8px; align-items: center; }
+.outlet-aksi .btn { min-height: 40px; }
+
+/* SATU blok lengket HP: tabs + cari + kategori (ganti 3 sticky berlapis) */
+.outlet-lengket {
+  position: sticky; top: 0; z-index: 20;
+  background: var(--kertas); padding: 8px 0 4px;
+  margin: 0 -12px; padding-inline: 12px;
+  border-bottom: 1px solid var(--garis);
+}
+
+/* Segmented tabs — 3 teks + 1 ikon cart, target sentuh 44px */
+.outlet-tabs {
+  display: grid; grid-template-columns: 1fr 1fr 1fr 52px; gap: 4px;
+  background: #f1ebda; border-radius: 14px; padding: 4px;
+}
+.outlet-tabs button {
+  border: 0; border-radius: 10px; background: transparent;
+  min-height: 46px; font-weight: 700; font-size: 13.5px; color: #5b6470;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.outlet-tabs button[aria-selected="true"] {
+  background: var(--tinta); color: #fff; box-shadow: 0 2px 8px rgb(0 0 0 / 0.18);
+}
+.outlet-tabs .bdg {
+  background: var(--cap); color: #fff; border-radius: 999px;
+  font-size: 11px; padding: 0 7px; line-height: 18px; font-weight: 800;
+}
+.outlet-tabs button[aria-selected="true"] .bdg { background: #fff; color: var(--tinta); }
+/* Tab ikon cart: ikon tengah + badge merah di sudut */
+.outlet-tabs button.cart { position: relative; }
+.outlet-tabs button.cart .bdg.cart {
+  position: absolute; top: 2px; right: 2px;
+  background: var(--cap); color: #fff;
+  min-width: 20px; height: 20px; line-height: 20px; padding: 0 5px;
+  font-size: 11px; font-weight: 800; text-align: center;
+}
+
+/* Search + kategori — ikut 1 blok lengket, tanpa top-px rapuh */
+.outlet-cari { padding: 8px 0 4px; }
+.outlet-cari input { min-height: 48px !important; border-radius: 12px !important; font-size: 16px !important; }
+.outlet-kat {
+  display: flex; flex-wrap: nowrap; gap: 8px;
+  overflow-x: auto; overflow-y: hidden;
+  padding: 4px 0 8px;
+  scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain; /* swipe horizontal tak bocor ke scroll halaman */
+  touch-action: pan-x pan-y;
+  scroll-padding-inline: 12px;
+  /* fade kanan = petunjuk "masih ada, geser" */
+  mask-image: linear-gradient(to right, #000 88%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, #000 88%, transparent 100%);
+}
+.outlet-kat::-webkit-scrollbar { display: none; }
+.outlet-kat button {
+  flex-shrink: 0; white-space: nowrap; min-height: 42px; border-radius: 999px;
+  border: 1.5px solid var(--garis); background: #fff;
+  font-size: 13.5px; font-weight: 600; padding: 0 16px; color: #3d4652;
+}
+.outlet-kat button[aria-selected="true"] { background: var(--tinta); border-color: var(--tinta); color: #fff; }
+.outlet-kat .isi { color: var(--daun); font-weight: 800; }
+.outlet-kat button[aria-selected="true"] .isi { color: #8fe3b4; }
+
+/* Kartu barang — nama wrap 2 baris (jangan truncate di HP), stepper 44px */
+.outlet-item {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  padding: 12px 4px; border-bottom: 1px solid #f0ebdb;
+}
+.outlet-item .nm {
+  font-weight: 650; font-size: 15px; line-height: 1.3;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.outlet-item .mt { font-size: 12.5px; color: #6b7480; margin-top: 2px; }
+.stepper { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.stepper button {
+  width: 44px; height: 44px; border-radius: 13px; font-size: 22px; line-height: 1;
+  border: 1.5px solid var(--garis); background: #fff; color: var(--tinta);
+  touch-action: manipulation;
+}
+.stepper button:active { transform: scale(0.93); }
+.stepper button.tambah { background: var(--daun); border-color: var(--daun); color: #fff; font-weight: 800; }
+.stepper input {
+  width: 52px !important; height: 44px !important; text-align: center;
+  font-weight: 800 !important; font-size: 17px !important; border-radius: 10px !important;
+  -moz-appearance: textfield; appearance: textfield;
+}
+.stepper input::-webkit-outer-spin-button,
+.stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.stepper input:not(:placeholder-shown) { border-color: var(--daun) !important; background: #eef8f1; }
+
+/* Kartu info loket tutup */
+.outlet-tutup {
+  border: 1.5px dashed var(--kunyit-tinta); background: var(--kunyit-bg);
+  border-radius: 16px; padding: 22px 18px; text-align: center;
+}
+
+/* Login */
+.outlet-login { max-width: 400px; margin-inline: auto; padding: 48px 16px; }
+.outlet-login input { min-height: 48px !important; font-size: 16px !important; border-radius: 12px !important; }
+.outlet-login .masuk { min-height: 50px; border-radius: 14px; font-weight: 800; background: var(--tinta); border: 0; }
+
+/* Filter riwayat: jempol-sentuh */
+.outlet-filter { display: flex; gap: 8px; margin-bottom: 12px; overflow-x: auto; scrollbar-width: none; }
+.outlet-filter::-webkit-scrollbar { display: none; }
+.outlet-filter .btn { min-height: 42px; padding-inline: 16px; border-radius: 999px; flex-shrink: 0; }
+
+/* Tiket + form terima: target sentuh lega */
+.outlet-wrap .btn.w-100 { min-height: 48px; font-weight: 700; border-radius: 12px; font-size: 15px; }
+.outlet-wrap .form-check { display: flex; gap: 10px; align-items: flex-start; }
+.outlet-wrap .form-check-input { width: 26px !important; height: 26px !important; margin-top: 2px; flex-shrink: 0; accent-color: var(--daun); }
+.outlet-wrap .card .form-control { min-height: 44px; font-size: 15px; }
+
+/* Modal outlet (ganti password): sudut nota + tombol lega */
+.outlet-modal .modal-content { border-radius: 16px; border: 1px solid var(--garis); }
+.outlet-modal .modal-header { border-bottom: 1px solid var(--garis); }
+.outlet-modal .modal-footer { border-top: 1px solid var(--garis); gap: 8px; }
+.outlet-modal .modal-footer .btn { min-height: 48px; font-weight: 700; border-radius: 12px; flex: 1; }
+.outlet-modal .modal-body .form-control { min-height: 48px; font-size: 16px; border-radius: 12px; }
+
+/* Fokus keyboard selalu terlihat */
+.outlet-wrap :focus-visible { outline: 3px solid var(--daun); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .outlet-wrap *, .outlet-wrap *::before, .outlet-wrap *::after { transition: none !important; animation: none !important; }
+}

@@ -34,6 +34,20 @@ export default function TransaksiTable({ items }) {
                         </Card.Header>
 
                         <Card.Body className='py-3'>
+                            {item.idKirim && (
+                                <div className='mb-1'>
+                                    <span className='small fw-semibold' style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', background: '#f1f3f5', borderRadius: 6, padding: '1px 8px' }}>
+                                        {item.idKirim}
+                                    </span>
+                                </div>
+                            )}
+                            {item.keterangan && (
+                                <div className='mb-1'>
+                                    <span className='small fw-semibold' style={{ background: '#e7f1ff', color: '#0c63e4', borderRadius: 6, padding: '1px 8px' }}>
+                                        {item.keterangan}
+                                    </span>
+                                </div>
+                            )}
                             <div className='d-flex justify-content-between align-items-center'>
                                 <div>
                                     <span className='d-block text-muted small mb-1'>

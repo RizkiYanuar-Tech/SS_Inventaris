@@ -4,16 +4,17 @@ import FastMovingTable from  '../components/homepage/FastMovingTable'
 import SummaryCard from '../components/homepage/SummaryCard'
 import TrendChart from '../components/homepage/TrendChart'
 import WeekFilter from '../components/homepage/WeekFilter'
-import { Package, TriangleAlert, CircleArrowDown, CircleArrowUp, Banknote, LogOut } from 'lucide-react'
+import { Package, TriangleAlert, CircleArrowDown, CircleArrowUp, Banknote, LogOut, Download } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { parseTimestamp, isSameDay, getMondayOf, addDays} from '../utils/dateParse';
 import RefreshButton from '../components/layout/RefreshButton'
+import UnduhAsetModal from '../components/homepage/UnduhAsetModal'
 import LoncengGudang from '../components/layout/LoncengGudang'
-import { keluarGudang, fetchNotifikasi } from '../api/client'
+import { keluarGudang, fetchNotifikasi, fetchVendor, tambahVendor, ubahVendor, hapusVendor } from '../api/client'
 
 // Import komponen React Bootstrap
-import { Container, Row, Col, Card, Button } from 'react-bootstrap';
+import { Container, Row, Col, Card, Button, Form } from 'react-bootstrap';
 
 const HARI = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu']
 
@@ -117,13 +118,57 @@ export default function HomePage(){
     }
     useEffect(() => { muatNotifikasi() }, [])
 
+    // Master vendor (CRUD sederhana; tanpa relasi; ikut loading/refresh)
+    const [vendor, setVendor] = useState([]);
+    const [vNama, setVNama] = useState('');
+    const [vNomor, setVNomor] = useState('');
+    const [vAlamat, setVAlamat] = useState('');
+    const [vEdit, setVEdit] = useState(null); // {id, nama, nomor, alamat}
+    const [vPesan, setVPesan] = useState('');
+    function muatVendor() {
+        fetchVendor().then(d => { setVendor(d); setVEdit(null); }).catch(() => setVendor([]));
+    }
+    useEffect(() => { muatVendor() }, []);
+    async function simpanVendorBaru() {
+        try {
+            const res = await tambahVendor({ nama: vNama, nomor: vNomor, alamat: vAlamat });
+            setVPesan(res.pesan || 'Tersimpan.');
+            setVNama(''); setVNomor(''); setVAlamat('');
+            muatVendor();
+        } catch (e) { setVPesan(e.message); }
+    }
+    async function simpanVendorEdit() {
+        if (!vEdit || !(Number(vEdit.id) > 0)) { setVPesan('Pilih baris vendor dulu lewat tombol Edit.'); return; }
+        if (!String(vEdit.nama || '').trim()) { setVPesan('Nama vendor wajib diisi.'); return; }
+        try {
+            const res = await ubahVendor(vEdit.id, { nama: vEdit.nama, nomor: vEdit.nomor, alamat: vEdit.alamat });
+            setVPesan(res.pesan || 'Diperbarui.');
+            setVEdit(null);
+            muatVendor();
+        } catch (e) { setVPesan(e.message); }
+    }
+    async function buangVendor(v) {
+        if (!window.confirm(`Hapus vendor ${v.nama}?`)) return;
+        try {
+            const res = await hapusVendor(v.id);
+            setVPesan(res.pesan || 'Dihapus.');
+            muatVendor();
+        } catch (e) { setVPesan(e.message); }
+    }
+
     const handleRefresh = () => {
         refreshBarang()
         refreshTransaksi()
         muatNotifikasi()
+        muatVendor()
     }
 
     const navigate = useNavigate()
+    // Unduh rincian aset via modal (preview + kini/per-tanggal).
+    const [bukaUnduh, setBukaUnduh] = useState(false);
+    function handleUnduhAset() {
+        setBukaUnduh(true);
+    }
     async function handleKeluar() {
         if (!window.confirm('Keluar dari sesi gudang?')) return
         try { await keluarGudang() } catch { /* sesi sudah mati, tetap keluar */ }
@@ -164,7 +209,14 @@ export default function HomePage(){
                             <SummaryCard icon={Package} iconColor='#2563eb' label='Jumlah Barang' value={totalBarang}/>
                         </Col>
                         <Col xs={6} md={4}>
-                            <SummaryCard icon={Banknote} iconColor='#16a34a' label='Total Aset Inventory' value={totalAsetRp} unit={belumHarga > 0 ? `${belumHarga} item belum ada harga` : null} />
+                            <div className='position-relative h-100'>
+                                <SummaryCard icon={Banknote} iconColor='#16a34a' label='Total Aset Inventory' value={totalAsetRp} unit={belumHarga > 0 ? `${belumHarga} item belum ada harga` : null} />
+                                <Button variant='link' size='sm' className='position-absolute top-0 end-0 p-2 text-muted'
+                                    onClick={handleUnduhAset} disabled={isLoading || barang.length === 0}
+                                    aria-label='Unduh rincian aset (CSV)' title='Unduh rincian aset (CSV)'>
+                                    <Download size={16} />
+                                </Button>
+                            </div>
                         </Col>
                         <Col xs={6} md={4}>
                             <SummaryCard icon={TriangleAlert} iconColor='#f70505' label='Stock Habis' value={emptyStockCount} unit="barang habis" rel='#dc3545'/>
@@ -201,8 +253,94 @@ export default function HomePage(){
                             <FastMovingTable items={fastMoving} />
                         </Card.Body>
                     </Card>
+
+                    <Card className="mt-4 shadow-sm border-0" style={{ borderRadius: '1rem' }}>
+                        <Card.Body>
+                            <h2 className="h6 fw-bold text-dark mb-3">Vendor ({vendor.length})</h2>
+                            {vPesan && <p className='small text-muted mb-2'>{vPesan}</p>}
+                            {vendor.map(v => {
+                                const editing = vEdit?.id === v.id;
+                                return (
+                                <div key={v.id} className='py-2' style={{ borderBottom: '1px solid #f1f3f5' }}>
+                                    <div className='d-flex justify-content-between align-items-center gap-2'>
+                                        <div className='flex-fill'>
+                                            {editing ? (
+                                                <Row className='g-1'>
+                                                    <Col xs={12} md={4}>
+                                                        <Form.Control size='sm' value={vEdit.nama || ''}
+                                                            onChange={e => setVEdit(p => ({ ...p, nama: e.target.value }))} placeholder='Nama' aria-label='Nama vendor' />
+                                                    </Col>
+                                                    <Col xs={6} md={4}>
+                                                        <Form.Control size='sm' value={vEdit.nomor || ''}
+                                                            onChange={e => setVEdit(p => ({ ...p, nomor: e.target.value }))} placeholder='Kontak' aria-label='Kontak vendor' />
+                                                    </Col>
+                                                    <Col xs={6} md={4}>
+                                                        <Form.Control size='sm' value={vEdit.alamat || ''}
+                                                            onChange={e => setVEdit(p => ({ ...p, alamat: e.target.value }))} placeholder='Alamat' aria-label='Alamat vendor' />
+                                                    </Col>
+                                                </Row>
+                                            ) : (
+                                                <>
+                                                    <div className='fw-medium small'>{v.nama}</div>
+                                                    <div className='text-muted' style={{ fontSize: '11px' }}>
+                                                        {[v.nomor, v.alamat].filter(Boolean).join(' • ') || '-'}
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
+                                        <span className='d-flex gap-1 flex-shrink-0'>
+                                            {editing ? (
+                                                <>
+                                                    <Button size='sm' variant='success'
+                                                        disabled={!String(vEdit.nama || '').trim()}
+                                                        onClick={simpanVendorEdit}>
+                                                        Simpan
+                                                    </Button>
+                                                    <Button size='sm' variant='secondary' onClick={() => setVEdit(null)}>
+                                                        Batal
+                                                    </Button>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Button size='sm' variant='outline-primary'
+                                                        onClick={() => setVEdit({ ...v })}>
+                                                        Edit
+                                                    </Button>
+                                                    <Button size='sm' variant='outline-danger' onClick={() => buangVendor(v)}>
+                                                        Hapus
+                                                    </Button>
+                                                </>
+                                            )}
+                                        </span>
+                                    </div>
+                                </div>
+                                );
+                            })}
+                            {vendor.length === 0 && <p className='small text-muted'>Belum ada vendor.</p>}
+                            <Row className='g-1 mt-2'>
+                                <Col xs={12} md={4}>
+                                    <Form.Label className='text-muted small mb-1'>Nama vendor baru</Form.Label>
+                                    <Form.Control size='sm' value={vNama} onChange={e => setVNama(e.target.value)} placeholder='Nama vendor baru' />
+                                </Col>
+                                <Col xs={6} md={3}>
+                                    <Form.Label className='text-muted small mb-1'>Kontak</Form.Label>
+                                    <Form.Control size='sm' value={vNomor} onChange={e => setVNomor(e.target.value)} placeholder='Kontak' />
+                                </Col>
+                                <Col xs={6} md={4}>
+                                    <Form.Label className='text-muted small mb-1'>Alamat</Form.Label>
+                                    <Form.Control size='sm' value={vAlamat} onChange={e => setVAlamat(e.target.value)} placeholder='Alamat' />
+                                </Col>
+                                <Col xs={12} md={1} className='d-flex align-items-end'>
+                                    <Button size='sm' variant='primary' className='w-100'
+                                        disabled={!vNama.trim()} onClick={simpanVendorBaru}>+</Button>
+                                </Col>
+                            </Row>
+                        </Card.Body>
+                    </Card>
                 </>
             )}
+            <UnduhAsetModal show={bukaUnduh} onTutup={() => setBukaUnduh(false)}
+                barang={barang} transaksi={transaksi} />
         </Container>
     )
 }

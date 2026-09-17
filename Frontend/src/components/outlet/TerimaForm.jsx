@@ -117,7 +117,7 @@ export default function TerimaForm({ token, onSelesai }) {
                         <Card.Body>
                             <Form.Check
                                 type='checkbox'
-                                label={<strong className='small'>{it.nama} — {it.jumlahKirim} pcs</strong>}
+                                label={<strong style={{ fontSize: '15px', lineHeight: 1.35 }}>{it.nama} — {it.jumlahKirim} pcs</strong>}
                                 checked={lap.ceklis === true}
                                 onChange={e => setLap(i, { ceklis: e.target.checked })}
                             />

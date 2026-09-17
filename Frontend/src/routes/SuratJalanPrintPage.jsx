@@ -66,11 +66,11 @@ export default function SuratJalanPrintPage() {
                 </thead>
                 <tbody>
                     {data.items.map(it => (
-                        <tr key={it.no} className={it.ditolak ? 'text-muted' : ''}>
+                        <tr key={it.no} className={it.ditolak ? 'text-muted sj-coret' : ''}>
                             <td>{it.outlet}</td>
-                            <td className={it.ditolak ? 'text-decoration-line-through' : ''}>{it.nama}</td>
+                            <td>{it.nama}</td>
                             <td>{it.note}</td>
-                            <td className={`text-end${it.ditolak ? ' text-decoration-line-through' : ''}`}>{it.qty}</td>
+                            <td className='text-end'>{it.qty}</td>
                             <td>{it.satuan}</td>
                             <td className='text-end'>{it.ditolak ? '-' : rp(it.harga)}</td>
                             <td className='text-end'>{it.ditolak ? '-' : rp(it.total)}</td>

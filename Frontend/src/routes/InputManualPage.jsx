@@ -26,6 +26,22 @@ export default function InputManualPage() {
         fetchBarang().then(setBarang).catch(e => setStatus({ type: 'error', text: e.message }));
     }, []);
 
+    // Anti-basi: segarkan katalog saat tab kembali terlihat (edit di Inventory
+    // lalu kembali ke sini) + sinkron ulang barang terpilih by ID.
+    useEffect(() => {
+        const segar = () => {
+            if (document.hidden) return;
+            fetchBarang()
+                .then(s => {
+                    setBarang(s);
+                    setDipilih(prev => (prev ? s.find(b => b.id === prev.id) || null : null));
+                })
+                .catch(() => {});
+        };
+        document.addEventListener('visibilitychange', segar);
+        return () => document.removeEventListener('visibilitychange', segar);
+    }, []);
+
     const kandidat = useMemo(() => {
         const q = search.trim().toLowerCase().replace(/\s+/g, ' ');
         if (!q) return [];
@@ -86,7 +102,7 @@ export default function InputManualPage() {
                                 <div>
                                     <div className='fw-medium small'>{b.nama}</div>
                                     <div className='text-muted' style={{ fontSize: '11px' }}>
-                                        {b.kategori} • {b.divisi || '-'} • {b.satuanEceran} • stock {b.stock}
+                                        {b.kategori} • {b.satuanEceran} • stock {b.stock}
                                     </div>
                                 </div>
                                 <Button size='sm' variant='primary' onClick={() => setDipilih(b)}>Pakai ini</Button>

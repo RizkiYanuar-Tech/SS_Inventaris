@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { Card, Button, Form, Modal, Collapse, Alert } from 'react-bootstrap'
+import { Fragment, useMemo, useState } from 'react'
+import { Card, Button, Form, Modal, Collapse, Alert, Table } from 'react-bootstrap'
 import { TriangleAlert } from 'lucide-react'
 import { ubahBarang, hapusBarang } from '../../api/client'
 import { opsiKategori } from '../../utils/kategori'
@@ -48,6 +48,10 @@ const getCategoryColors = (kategori) => {
         return { bg: '#fffdf7', text: '#857a5b', border: '#e6ddc8' };
     } else if (namaKategori === 'kemasan') {
         return { bg: '#e9ecef', text: '#495057', border: '#ced4da' };
+    } else if (namaKategori === 'frozen') {
+        return { bg: '#e0f2fe', text: '#075985', border: '#7dd3fc' };
+    } else if (namaKategori === 'perlengkapan') {
+        return { bg: '#f3e8ff', text: '#6b21a8', border: '#d8b4fe' };
     }
     return { bg: '#f8f9fa', text: '#6c757d', border: '#dee2e6' };
 };
@@ -56,8 +60,8 @@ const getCategoryColors = (kategori) => {
 function EditForm({ item, opsiKategoriList, onSelesai }) {
     const [f, setF] = useState({
         nama: item.nama || '', varian: item.varian || '', kategori: item.kategori || '',
-        divisi: item.divisi || '', restock: item.threshold ?? '', keterangan: item.keterangan || '',
-        istilah: item.istilah || '', satuanGudang: item.satuanGrosir || '', isi: item.isiPerGrosir ?? '',
+        restock: item.threshold ?? '', keterangan: item.keterangan || '',
+        satuanGudang: item.satuanGrosir || '', isi: item.isiPerGrosir ?? '',
         harga: item.hargaBarang ?? '', satuanBaru: '', konfirmasiSatuan: '',
     });
     const [saving, setSaving] = useState(false);
@@ -69,9 +73,9 @@ function EditForm({ item, opsiKategoriList, onSelesai }) {
     async function submit() {
         setErr('');
         const payload = {
-            nama: f.nama, varian: f.varian, kategori: f.kategori, divisi: f.divisi,
+            nama: f.nama, varian: f.varian, kategori: f.kategori,
             restock: f.restock === '' ? undefined : Number(f.restock),
-            keterangan: f.keterangan, istilah: f.istilah,
+            keterangan: f.keterangan,
             satuanGudang: f.satuanGudang, isiPerGudang: f.isi,
             hargaBarang: f.harga === '' ? null : Number(f.harga),
         };
@@ -98,14 +102,10 @@ function EditForm({ item, opsiKategoriList, onSelesai }) {
                 <Form.Control size='sm' value={f.nama} onChange={set('nama')} />
             </Form.Group>
             <Form.Group className='mb-2'>
-                <Form.Label className='text-muted small mb-1'>Varian</Form.Label>
+                <Form.Label className='text-muted small mb-1'>Merk</Form.Label>
                 <Form.Control size='sm' value={f.varian} onChange={set('varian')} />
             </Form.Group>
             <div className='d-flex gap-2'>
-                <Form.Group className='mb-2 flex-fill'>
-                    <Form.Label className='text-muted small mb-1'>Divisi</Form.Label>
-                    <Form.Control size='sm' value={f.divisi} onChange={set('divisi')} />
-                </Form.Group>
                 <Form.Group className='mb-2 flex-fill'>
                     <Form.Label className='text-muted small mb-1'>Batas Restock</Form.Label>
                     <Form.Control size='sm' type='number' inputMode='numeric' min='0' value={f.restock} onChange={set('restock')} />
@@ -117,8 +117,8 @@ function EditForm({ item, opsiKategoriList, onSelesai }) {
                         onChange={(v) => setF(prev => ({ ...prev, kategori: v }))} opsi={opsiKategoriList} />
                 </Form.Group>
             <Form.Group className='mb-2'>
-                <Form.Label className='text-muted small mb-1'>Istilah Data Resep (alias)</Form.Label>
-                <Form.Control size='sm' value={f.istilah} onChange={set('istilah')} />
+                <Form.Label className='text-muted small mb-1'>Keterangan</Form.Label>
+                <Form.Control size='sm' value={f.keterangan} onChange={set('keterangan')} />
             </Form.Group>
             <div className='d-flex gap-2'>
                 <Form.Group className='mb-2 flex-fill'>
@@ -149,7 +149,7 @@ function EditForm({ item, opsiKategoriList, onSelesai }) {
                     <Form.Control size='sm' value={f.satuanBaru} onChange={set('satuanBaru')} placeholder='Satuan baru' aria-label='Satuan baru' />
                     <Form.Control size='sm' value={f.konfirmasiSatuan} onChange={set('konfirmasiSatuan')} placeholder='Ketik ulang persis' aria-label='Ketik ulang satuan baru' />
                 </div>
-                {gantiSatuan && <div className='small text-danger mt-1'>Stock {item.stock} ikut berubah makna menjadi {f.satuanBaru.trim()}.</div>}
+                {gantiSatuan && <div className='small text-danger mt-1'>Stock {item.stock} {item.satuanEceran} jadi {item.stock} {f.satuanBaru.trim()} — bukan hasil konversi.</div>}
             </div>
             )}
             <Button size='sm' variant='primary' className='w-100' disabled={saving} onClick={submit}>
@@ -159,12 +159,42 @@ function EditForm({ item, opsiKategoriList, onSelesai }) {
     );
 }
 
-export default function StockTable({ items, semua, onBerubah }) {
+export default function StockTable({ items, semua, onBerubah, mode = 'kartu' }) {
     const [editId, setEditId] = useState(null);
     const [hapus, setHapus] = useState(null); // item yang dikonfirmasi hapus
     const [busy, setBusy] = useState(false);
     const [modal, setModal] = useState({ show: false, sukses: false, pesan: '' });
+    const [bukaId, setBukaId] = useState(null); // baris tabel yang di-expand
+    const [sort, setSort] = useState({ kunci: 'nama', arah: 1 });
     const daftarKategori = useMemo(() => opsiKategori(semua || items), [semua, items]);
+
+    const rp = (n) => new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(Number(n) || 0);
+    // Sort client-side (mode tabel; kartu ikut urutan filter apa adanya).
+    const tampil = useMemo(() => {
+        if (mode !== 'tabel') return items;
+        const arr = [...(items || [])];
+        const { kunci, arah } = sort;
+        const val = (it) => kunci === 'nama' ? `${it.nama || ''} ${it.varian || ''}`.toLowerCase()
+            : kunci === 'kategori' ? String(it.kategori || '').toLowerCase()
+            : kunci === 'stock' ? Number(it.stock) || 0
+            : kunci === 'batas' ? Number(it.threshold) || 0
+            : Number(it.hargaBarang) || 0;
+        arr.sort((a, b) => {
+            const va = val(a), vb = val(b);
+            const c = typeof va === 'string' ? va.localeCompare(vb, 'id') : va - vb;
+            return c * arah;
+        });
+        return arr;
+    }, [items, mode, sort]);
+    const panah = (k) => sort.kunci === k ? (sort.arah === 1 ? ' ▲' : ' ▼') : '';
+    function klikSort(k) {
+        setSort(s => s.kunci === k ? { kunci: k, arah: -s.arah } : { kunci: k, arah: 1 });
+    }
+    function selesaiEdit(s, pesan) {
+        setEditId(null);
+        setModal({ show: true, sukses: s, pesan });
+        if (s) onBerubah?.();
+    }
 
     if (!items || items.length === 0) {
         return (
@@ -191,7 +221,93 @@ export default function StockTable({ items, semua, onBerubah }) {
     }
 
     return (
-        <div className="hub-grid">
+        <>
+            {mode === 'tabel' ? (
+                <Table hover size='sm' className='inv-tabel'>
+                    <thead>
+                        <tr>
+                            <th className='sort' onClick={() => klikSort('nama')}>Nama{panah('nama')}</th>
+                            <th className='sort kol-kat' onClick={() => klikSort('kategori')}>Kategori{panah('kategori')}</th>
+                            <th className='sort num' onClick={() => klikSort('stock')}>Stock{panah('stock')}</th>
+                            <th className='sort num kol-batas' onClick={() => klikSort('batas')}>Batas{panah('batas')}</th>
+                            <th className='sort num kol-harga' onClick={() => klikSort('harga')}>Harga{panah('harga')}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {tampil.map((item, i) => {
+                            const colors = getCategoryColors(item.kategori);
+                            const kunci = `${item.id}#${i}`;
+                            const buka = bukaId === kunci;
+                            const st = statusInfo(item.stock, item.threshold);
+                            return (
+                                <Fragment key={kunci}>
+                                    <tr className='baris' onClick={() => { setBukaId(buka ? null : kunci); setEditId(null); }}>
+                                        <td>
+                                            <span className='titik' style={{ backgroundColor: colors.text }} />
+                                            <strong>{item.nama}</strong>
+                                            {item.varian && <span className='text-muted'> - {item.varian}</span>}
+                                            <div className='id-mono'>{item.id}</div>
+                                        </td>
+                                        <td className='kol-kat'>
+                                            <span className='badge rounded-pill' style={{ backgroundColor: colors.bg, color: colors.text, border: `1px solid ${colors.border}` }}>
+                                                {item.kategori}
+                                            </span>
+                                        </td>
+                                        <td className='num' style={st.kata === 'Aman' ? { fontWeight: 700 } : { color: st.warna, fontWeight: 800 }}>
+                                            {item.stock} <span className='text-muted fw-normal'>{item.satuanEceran}</span>
+                                        </td>
+                                        <td className='num kol-batas text-muted'>
+                                            {item.threshold ?? '-'}
+                                        </td>
+                                        <td className='num kol-harga text-muted'>
+                                            {item.hargaBarang != null ? rp(item.hargaBarang) : '-'}
+                                        </td>
+                                    </tr>
+                                    {buka && (
+                                        <tr className='detail'>
+                                            <td colSpan={5}>
+                                                <div className='d-flex align-items-baseline gap-1'>
+                                                    <span className='text-muted small'>Batas {item.threshold} {item.satuanEceran}</span>
+                                                    <StatusBadge jumlahStock={item.stock} reStock={item.threshold} />
+                                                </div>
+                                                <StripUkur jumlahStock={item.stock} reStock={item.threshold} />
+                                                {(item.satuanGrosir || item.keterangan) && (
+                                                    <div className='text-muted small mt-1'>
+                                                        {item.satuanGrosir && (
+                                                            <span>
+                                                                Kemasan: 1 {item.satuanGrosir}
+                                                                {item.isiPerGrosir != null ? ` = ${item.isiPerGrosir} ${item.satuanEceran}` : ' (isi belum diisi)'}
+                                                                {item.keterangan ? ' • ' : ''}
+                                                            </span>
+                                                        )}
+                                                        {item.keterangan && <span>{item.keterangan}</span>}
+                                                    </div>
+                                                )}
+                                                <div className='d-flex gap-2 mt-2 mb-1'>
+                                                    <Button size='sm' variant='primary' className='flex-fill'
+                                                        onClick={(e) => { e.stopPropagation(); setEditId(editId === kunci ? null : kunci); }}>
+                                                        {editId === kunci ? 'Tutup' : 'Edit'}
+                                                    </Button>
+                                                    <Button size='sm' variant='outline-danger' className='flex-fill'
+                                                        onClick={(e) => { e.stopPropagation(); setHapus(item); }}>
+                                                        Hapus
+                                                    </Button>
+                                                </div>
+                                                <Collapse in={editId === kunci}>
+                                                    <div>
+                                                        {editId === kunci && <EditForm item={item} opsiKategoriList={daftarKategori} onSelesai={selesaiEdit} />}
+                                                    </div>
+                                                </Collapse>
+                                            </td>
+                                        </tr>
+                                    )}
+                                </Fragment>
+                            );
+                        })}
+                    </tbody>
+                </Table>
+            ) : (
+                <div className="hub-grid">
             {items.map((item, i) => {
                 const colors = getCategoryColors(item.kategori);
                 const buka = editId === `${item.id}#${i}`;
@@ -247,11 +363,6 @@ export default function StockTable({ items, semua, onBerubah }) {
                                 <span className="text-muted">
                                     <span className="fw-semibold">Batas:</span> {item.threshold} {item.satuanEceran}
                                 </span>
-                                {item.divisi && (
-                                    <span className="text-muted">
-                                        <span className="fw-semibold">Divisi:</span> {item.divisi}
-                                    </span>
-                                )}
                             </div>
                             {(item.satuanGrosir || item.keterangan) && (
                                 <div className="text-muted small mt-1">
@@ -278,7 +389,9 @@ export default function StockTable({ items, semua, onBerubah }) {
                         </Card.Footer>
                     </Card>
                 );
-            })}
+                    })}
+                </div>
+            )}
 
             <Modal show={!!hapus} onHide={() => !busy && setHapus(null)} centered>
                 <Modal.Header closeButton>
@@ -291,10 +404,10 @@ export default function StockTable({ items, semua, onBerubah }) {
                                 <span className="text-muted" style={{ width: 90 }}>Nama</span>
                                 <strong>{hapus.nama}</strong>
                             </div>
-                            <div className="d-flex gap-2 py-1" style={{ borderBottom: '1px solid #f1f3f5' }}>
-                                <span className="text-muted" style={{ width: 90 }}>Varian</span>
-                                <span>{hapus.varian || '-'}</span>
-                            </div>
+                                <div className="d-flex gap-2 py-1" style={{ borderBottom: '1px solid #f1f3f5' }}>
+                                    <span className="text-muted" style={{ width: 90 }}>Merk</span>
+                                    <span>{hapus.varian || '-'}</span>
+                                </div>
                             <div className="d-flex gap-2 py-1" style={{ borderBottom: '1px solid #f1f3f5' }}>
                                 <span className="text-muted" style={{ width: 90 }}>Kategori</span>
                                 <span>{hapus.kategori || '-'}</span>
@@ -320,6 +433,6 @@ export default function StockTable({ items, semua, onBerubah }) {
             </Modal>
 
             <ResultModal show={modal.show} sukses={modal.sukses} pesan={modal.pesan} onClose={() => setModal(m => ({ ...m, show: false }))} />
-        </div>
+        </>
     );
 }

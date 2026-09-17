@@ -1,5 +1,3 @@
-/* Utilitas adaptif hub gudang (outlet tetap kolom 480px miliknya sendiri) */
-
 /* Lebar halaman hub: HP penuh, tablet 720px, desktop 960px, selalu tengah */
 .hub-lebar {
   width: 100%;
@@ -38,6 +36,12 @@
 .sj-box th { background: #d9ead3; font-weight: 600; }
 .sj-tabel { font-size: 12px; font-variant-numeric: tabular-nums; }
 .sj-tabel thead th { background: #b7b7b7; text-align: center; vertical-align: middle; }
+    /* Coretan ujung-ke-ujung baris tolak: tiap sel gambar segmen di tengah baris */
+.sj-coret td { position: relative; }
+.sj-coret td::after {
+  content: ''; position: absolute; left: 0; right: 0; top: 50%;
+  border-top: 2px solid #8a8a8a;
+}
 @media print {
   @page { size: A4 landscape; margin: 12mm; }
   .no-print, .fixed-bottom { display: none !important; }

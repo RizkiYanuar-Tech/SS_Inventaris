@@ -19,7 +19,9 @@ export function filterTransaksi(items, {search, startDate, endDate, jenis }){
         const isSearchMatch =
             item.nama.toLowerCase().includes(search.toLowerCase()) ||
             (item.varian && item.varian.toLowerCase().includes(search.toLowerCase())) ||
-            item.id.toString().includes(search)
+            (item.idKirim && item.idKirim.toLowerCase().includes(search.toLowerCase())) ||
+            (item.keterangan && item.keterangan.toLowerCase().includes(search.toLowerCase())) ||
+            (item.id != null && item.id.toString().includes(search))
             
         const tanggal = parseTimestamp(item.timestamp)
         const isDateMatch = !tanggal || ((!start || tanggal >= start) && (!end || tanggal <= end))
