@@ -5,7 +5,7 @@ import DateRangeFilter from '../components/transaksi/DateRangeFilter'
 import SearchBar from '../components/stock/SearchBar'
 import { filterTransaksi } from '../utils/filterTransaksi'
 import { parseTimestamp } from '../utils/dateParse'
-import { Container, Row, Col, Button, Collapse} from 'react-bootstrap'
+import { Container, Row, Col, Button, Collapse, Form} from 'react-bootstrap'
 import { Funnel } from 'lucide-react'
 import { useTransaksi } from '../hooks/useTransaksi'
 import { usePagination } from '../hooks/usePagination'
@@ -21,12 +21,13 @@ export default function TransaksiPage(){
     const {data: items, loading, error} = useTransaksi();
     const [search, setSearch] = useState('');
     const [jenis, setJenis] = useState('Semua');
+    const [sembunyikanOpname, setSembunyikanOpname] = useState(true);
     const [startDate, setStartDate] = useState(defaultDate(7));
     const [endDate, setEndDate] = useState(defaultDate(0));
     const [showFilter, setShowFilter] = useState(false);
 
     const filtered = useMemo(() => {
-        const hasil = filterTransaksi(items, {search, startDate, endDate, jenis })
+        const hasil = filterTransaksi(items, {search, startDate, endDate, jenis, sembunyikanOpname })
         
         // Urutkan dari atas
         return [...hasil].sort((a, b) =>{
@@ -35,7 +36,7 @@ export default function TransaksiPage(){
             if (!tglA || !tglB) return 0
             return tglB - tglA
         })
-    }, [items, search, startDate, endDate, jenis])
+    }, [items, search, startDate, endDate, jenis, sembunyikanOpname])
     const {currentItems, currentPage, totalPages, nextPage, prevPage} = usePagination(filtered, 6)
 
     if (loading) return <p className='text-center py-5'>Memuat History Gudang....</p>
@@ -72,6 +73,10 @@ export default function TransaksiPage(){
                     <KategoriFilter items={items} selectedCategory={jenis} onCategoryChange={setJenis} field='jenis' labelSemua='Semua Jenis' />
                 </div>
             </Collapse>
+
+            <Form.Check type='checkbox' id='sembunyikan-opname' label='Sembunyikan penyesuaian opname'
+                className='mb-3 small text-muted'
+                checked={sembunyikanOpname} onChange={(e) => setSembunyikanOpname(e.target.checked)} />
 
             <TransaksiTable items={currentItems} />
             <Pagination currentPage={currentPage} totalPages={totalPages} onPrev={prevPage} onNext={nextPage} />

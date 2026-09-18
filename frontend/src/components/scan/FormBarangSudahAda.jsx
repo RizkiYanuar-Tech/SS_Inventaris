@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Card, Form, Button } from 'react-bootstrap'
 import { ArrowDownCircle, ArrowUpCircle } from 'lucide-react'
 import { formatRibu, parseRibu } from '../../utils/formatRupiah'
+import { fetchVendor } from '../../api/client'
 
 // hitungAvg: avgBaru = (totalLama*avgLama + totalBayar) / (totalLama + qtyMasuk eceran).
 function hitungAvg(avgLama, totalLama, totalBayar, qtyMasuk) {
@@ -19,6 +20,12 @@ export default function FormBarangSudahAda({ barang, onSubmit }) {
     const satuanStock = barang.satuanEceran || 'pcs';
     const [jumlah, setJumlah] = useState(1)
     const [totalBayar, setTotalBayar] = useState('')
+    const [vendor, setVendor] = useState('')
+    const [daftarVendor, setDaftarVendor] = useState([])
+
+    useEffect(() => {
+        fetchVendor().then(setDaftarVendor).catch(() => setDaftarVendor([]));
+    }, []);
 
     const jumlahKonversi = Number(jumlah);
 
@@ -77,12 +84,25 @@ export default function FormBarangSudahAda({ barang, onSubmit }) {
                     </p>
                 )}
 
+                <Form.Group className="mb-3">
+                    <Form.Label className="text-muted small mb-1">
+                        Vendor <span className="fst-italic">— opsional, khusus Barang Masuk</span>
+                    </Form.Label>
+                    <Form.Select size="sm" value={vendor} onChange={(e) => setVendor(e.target.value)}
+                        aria-label="Vendor (opsional)">
+                        <option value="">— Tanpa vendor —</option>
+                        {daftarVendor.map(v => (
+                            <option key={v.id} value={v.nama}>{v.nama}</option>
+                        ))}
+                    </Form.Select>
+                </Form.Group>
+
                 <div className="d-grid gap-2">
                     <Button
                         variant="success"
                         disabled={!(jumlahKonversi > 0)}
                         className="d-flex align-items-center justify-content-center gap-2"
-                        onClick={() => onSubmit('Masuk', jumlahKonversi, satuanStock, parseRibu(totalBayar))}
+                        onClick={() => onSubmit('Masuk', jumlahKonversi, satuanStock, parseRibu(totalBayar), vendor || undefined)}
                     >
                         <ArrowDownCircle size={18} /> Barang Masuk
                         <span className="small">(jadi {stockJadiMasuk} {satuanStock})</span>

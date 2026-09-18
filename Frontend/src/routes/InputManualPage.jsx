@@ -51,10 +51,10 @@ export default function InputManualPage() {
         ).slice(0, 10);
     }, [barang, search]);
 
-    async function handleTransaksi(jenis, jumlah, satuanInput, totalBayar) {
+    async function handleTransaksi(jenis, jumlah, satuanInput, totalBayar, vendor) {
         setStatus({ type: 'info', text: 'Memproses transaksi...' });
         try {
-            const res = await prosesTransaksi({ id: dipilih.id, jenis, jumlah, satuanInput, totalBayar });
+            const res = await prosesTransaksi({ id: dipilih.id, jenis, jumlah, satuanInput, totalBayar, vendor });
             setStatus(null);
             setModal({ show: true, sukses: !!res.sukses, pesan: res.pesan || '' });
             if (res.sukses) {

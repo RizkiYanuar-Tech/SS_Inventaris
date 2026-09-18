@@ -7,6 +7,13 @@ const { formatWaktuBukti } = require('../lib/waktu');
 const { hitungAvg, kanonikSatuan } = require('../lib/konversi');
 const { buatIdBarang, catatTransaksi, cekThreshold } = require('../lib/data');
 
+// Vendor Masuk opsional: snapshot nama ke keterangan transaksi ("Vendor: X").
+// Tanpa lookup master (rename/hapus vendor tak merusak history, seperti snapshot nama_barang).
+function vendorKeKeterangan(vendor) {
+  const nama = String(vendor || '').trim().replace(/\s+/g, ' ').slice(0, 120);
+  return nama ? `Vendor: ${nama}` : null;
+}
+
 router.get("/api/barang", wajibGudang, async (req, res) => {
   try{
     const r = await sb.from('barang_inventory').select('*').order('dibuat_pada', { ascending: true });
@@ -61,7 +68,7 @@ router.get("/api/transaksi", wajibGudang, async(req, res) => {
 // Tambah barang baru (id opsional -> auto MNL urut global; tanpa kolom ID di UI manual)
 router.post('/api/tambahBarangBaru', wajibGudang, async (req, res) => {
   try {
-    const { id, nama, varian, kategori, jumlah, restock, satuanEceran, satuanGudang, isiPerGudang, keterangan, totalBayar } = req.body;
+    const { id, nama, varian, kategori, jumlah, restock, satuanEceran, satuanGudang, isiPerGudang, keterangan, totalBayar, vendor } = req.body;
     const namaBersih = String(nama || '').trim().replace(/\s+/g, ' ');
     if (!namaBersih) {
       return res.status(400).json({ sukses: false, pesan: 'Nama Barang wajib diisi.' });
@@ -118,7 +125,8 @@ router.post('/api/tambahBarangBaru', wajibGudang, async (req, res) => {
     if (ins.error) throw new Error(ins.error.message);
 
     await catatTransaksi(idPakai, namaBersih, varian, kategoriSimpan, 'Masuk', Number(jumlah) || 0, satuan,
-      Number(jumlah) > 0 && Number(totalBayar) > 0 ? Number(totalBayar) / Number(jumlah) : null);
+      Number(jumlah) > 0 && Number(totalBayar) > 0 ? Number(totalBayar) / Number(jumlah) : null,
+      null, vendorKeKeterangan(vendor));
 
     res.json({ sukses: true, pesan: `Barang baru ${namaBersih} tersimpan ke database. Stock awal: ${Number(jumlah) || 0} ${satuan}` });
   } catch (err) {
@@ -230,7 +238,7 @@ router.delete('/api/barang/:id', wajibGudang, async (req, res) => {
 // Proses transaksi masuk/keluar-
 router.post('/api/prosesTransaksi', wajibGudang, async (req, res) => {
   try {
-    const { id, jenis, jumlah, satuanInput, totalBayar } = req.body;
+    const { id, jenis, jumlah, satuanInput, totalBayar, vendor } = req.body;
     const b = await sb.from('barang_inventory').select('*').eq('id_barang', String(id).trim()).maybeSingle();
     if (b.error) throw new Error(b.error.message);
     const row = b.data;
@@ -288,7 +296,9 @@ router.post('/api/prosesTransaksi', wajibGudang, async (req, res) => {
                         jenis,
                         jmlh,
                         satuanEceran,
-                        hargaSatuanTrx);
+                        hargaSatuanTrx,
+                        null,
+                        jenis === 'Masuk' ? vendorKeKeterangan(vendor) : null);
     await cekThreshold(
       row.id_barang,
       row.nama_barang,

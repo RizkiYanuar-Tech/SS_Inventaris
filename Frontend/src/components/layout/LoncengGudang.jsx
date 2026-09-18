@@ -93,7 +93,12 @@ export default function LoncengGudang({ data, onMuat }) {
                 {daftar.map(n => (
                     <Dropdown.Item key={n.id} className='small'
                         style={{ whiteSpace: 'normal', background: n.dibaca ? undefined : '#f0f6ff' }}
-                        onClick={() => { tandaiDibaca(); setBuka(false); navigate('/pesanan'); }}>
+                        onClick={() => {
+                            tandaiDibaca(); setBuka(false);
+                            const ref = String(n.ref || '').trim() || (String(n.judul || '').match(/SOP-\d+-\d+/) || [])[0] || '';
+                            if (String(n.judul || '').startsWith('SAMPLING ACAK') && ref) navigate('/opname?buka=' + encodeURIComponent(ref));
+                            else navigate('/pesanan');
+                        }}>
                         <div className='fw-bold'>{n.judul}</div>
                         <div className='text-muted text-truncate'>{n.isi}</div>
                     </Dropdown.Item>

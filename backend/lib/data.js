@@ -194,26 +194,60 @@ async function cekThreshold(id, nama, stockSekarang, threshold){
   }
 }
 
-// Cek acak kesesuaian stock fisik (tanpa WA — jejak via log)
+// Helper sesi opname (dipakai route + scheduler mini; dulu duplikat di routes/opname.js)
+async function buatIdSesi() {
+  const today = jakartaParts(new Date()).ymd.replaceAll('-', '');
+  const r = await sb.from('opname_sesi').select('id_sesi', { count: 'exact', head: true }).like('id_sesi', `SOP-${today}%`);
+  if (r.error) throw new Error(r.error.message);
+  return `SOP-${today}-${String((r.count || 0) + 1).padStart(3, '0')}`;
+}
+
+async function sesiTerbuka() {
+  const r = await sb.from('opname_sesi').select('id_sesi').in('status', ['HITUNG', 'REVIEW']).limit(1);
+  if (r.error) throw new Error(r.error.message);
+  return (r.data && r.data[0]) || null;
+}
+
+// Sampling acak -> sesi opname mini otomatis (max 3 barang, 1x/hari; skip bila ada sesi terbuka / sudah ada sesi hari ini)
 async function RandomSamplingChecking(){
-  const sampling_check = 0.1;
-
   try{
-    const { data, error } = await sb.from('barang_inventory').select('*');
+    const buka = await sesiTerbuka();
+    if (buka) { console.log(`Sampling skip: sesi ${buka.id_sesi} masih terbuka.`); return null; }
+    const today = jakartaParts(new Date()).ymd.replaceAll('-', '');
+    const ada = await sb.from('opname_sesi').select('id_sesi').like('id_sesi', `SOP-${today}%`).limit(1);
+    if (ada.error) throw new Error(ada.error.message);
+    if (ada.data && ada.data.length) { console.log(`Sampling skip: sesi hari ini sudah ada (${ada.data[0].id_sesi}).`); return null; }
+
+    const { data, error } = await sb.from('barang_inventory').select('id_barang,nama_barang,total,harga_barang');
     if (error) throw new Error(error.message);
-    if (data.length === 0) return;
+    if (!data || !data.length) return null;
 
-    const jumlahSampel = Math.min(3, Math.max(1, Math.ceil(data.length * sampling_check)));
-    const acak = [...data].sort(() => Math.random() - 0.5).slice(0, jumlahSampel);
+    const pool = [...data];
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    const acak = pool.slice(0, Math.min(3, pool.length));
 
-    let pesan = "*CHECK PRODUK*\n\n Check Produk Berikut, apakah jumlah stock sesuai?";
-    acak.forEach(row => {
-      pesan += `- Nama Barang: ${row.nama_barang} \n Jumlah Stock: ${row.total} \n`;
-    });
+    const idSesi = await buatIdSesi();
+    const ins = await sb.from('opname_sesi').insert({ id_sesi: idSesi, status: 'HITUNG', dibuat_pada: nowIso() });
+    if (ins.error) throw new Error(ins.error.message);
+    const rows = acak.map(b => ({
+      id_sesi: idSesi, id_barang: b.id_barang,
+      sistem_qty: Number(b.total) || 0,
+      sistem_harga: b.harga_barang != null ? Number(b.harga_barang) : null,
+      fisik_qty: null,
+    }));
+    const r = await sb.from('opname_item').insert(rows);
+    if (r.error) throw new Error(r.error.message);
 
-    console.log(pesan);
+    const daftar = acak.map(b => `${b.nama_barang} (sistem ${b.total})`).join('; ');
+    await tulisNotifikasi('SAMPLING ACAK ' + idSesi, `Hitung ${acak.length} barang: ${daftar}. Buka /opname → Lanjut.`, idSesi);
+    console.log(`Sampling mini ${idSesi}: ${daftar}`);
+    return idSesi;
   } catch (err){
-    console.error(`Random Sampling reminder gagal terkirim, ${err}`);
+    console.error(`Random Sampling gagal: ${err.message}`);
+    return null;
   }
 }
 
@@ -340,7 +374,7 @@ async function buatPengiriman(outlet, items, idPesan = null) {
 }
 
 module.exports = {
-  initDb, buatIdKirim, buatIdBarang, buatIdPesan,
+  initDb, buatIdKirim, buatIdBarang, buatIdPesan, buatIdSesi, sesiTerbuka,
   cariPengiriman, pengirimanKeJson, simpanPengiriman,
   cariOutletByToken, pesananKeJson, cariPesanan, simpanPesanan, mirrorPesanan,
   catatTransaksi, cekThreshold, RandomSamplingChecking, scheduleRandomSampling,

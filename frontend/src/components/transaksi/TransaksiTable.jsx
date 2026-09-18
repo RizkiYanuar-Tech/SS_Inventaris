@@ -41,13 +41,18 @@ export default function TransaksiTable({ items }) {
                                     </span>
                                 </div>
                             )}
-                            {item.keterangan && (
+                            {item.keterangan && (() => {
+                                const isVendor = String(item.keterangan).startsWith('Vendor:');
+                                return (
                                 <div className='mb-1'>
-                                    <span className='small fw-semibold' style={{ background: '#e7f1ff', color: '#0c63e4', borderRadius: 6, padding: '1px 8px' }}>
+                                    <span className='small fw-semibold' style={isVendor
+                                        ? { background: '#d1e7dd', color: '#0f5132', borderRadius: 6, padding: '1px 8px' }
+                                        : { background: '#e7f1ff', color: '#0c63e4', borderRadius: 6, padding: '1px 8px' }}>
                                         {item.keterangan}
                                     </span>
                                 </div>
-                            )}
+                                );
+                            })()}
                             <div className='d-flex justify-content-between align-items-center'>
                                 <div>
                                     <span className='d-block text-muted small mb-1'>

@@ -87,3 +87,33 @@ export function asetPerTanggalKeCsv(barang, transaksi, tglH) {
     baris.push([`Posisi akhir ${tglH} WIB; barang terhapus tak termasuk. Diunduh ${stamp} WIB`, '', '', '', '', '', '', '']);
     return '\uFEFF' + baris.map(r => r.map(selCsv).join(';')).join('\r\n');
 }
+
+// Rentang tanggal: snapshot per hari (posisi akhir tiap H), format long 1 baris
+// per barang per tanggal. Reuse hitungAsetPerTanggal agar angka identik dengan
+// unduh per-tanggal. Cap 31 hari agar file tetap ringan (419 barang x 31).
+export function asetRentangKeCsv(barang, transaksi, tglAwal, tglAkhir) {
+    const keHari = (s) => {
+        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || ''));
+        if (!m) return null;
+        return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    };
+    const a = keHari(tglAwal), b = keHari(tglAkhir);
+    if (a == null || b == null) throw new Error('Rentang tanggal tidak valid.');
+    const nHari = Math.round((b - a) / 86400000) + 1;
+    if (nHari < 1) throw new Error('Tanggal awal harus sama atau sebelum tanggal akhir.');
+    if (nHari > 31) throw new Error('Rentang maksimal 31 hari.');
+    const baris = [[ 'Tanggal', 'ID', 'Nama', 'Merk', 'Kategori', 'Satuan',
+        'Stock akhir', 'Harga Satuan (Rp)', 'Total (Rp)' ]];
+    for (let i = 0; i < nHari; i++) {
+        const ymd = new Date(a + i * 86400000).toISOString().slice(0, 10);
+        const { rows, total } = hitungAsetPerTanggal(barang, transaksi, ymd);
+        for (const r of rows) {
+            baris.push([ymd, r.id, r.nama, r.merk, r.kategori, r.satuan, r.stock,
+                r.harga != null ? r.harga : '', r.total != null ? r.total : '']);
+        }
+        baris.push([`TOTAL ASET ${ymd}`, '', '', '', '', '', '', '', Math.round(total * 100) / 100]);
+    }
+    const stamp = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
+    baris.push([`Rentang ${tglAwal} s/d ${tglAkhir} (posisi akhir tiap hari, WIB); barang terhapus tak termasuk. Diunduh ${stamp} WIB`, '', '', '', '', '', '', '', '']);
+    return '\uFEFF' + baris.map(r => r.map(selCsv).join(';')).join('\r\n');
+}

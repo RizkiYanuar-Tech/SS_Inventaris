@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Container, Card, Button, Form, Table, Alert, Badge } from 'react-bootstrap';
 import { fetchOpname, fetchOpnameDetail, mulaiOpname, hitungOpname, reviewOpname, putusOpname, batalOpname, kembaliOpname } from '../api/client';
 import { usePagination } from '../hooks/usePagination';
@@ -9,6 +9,7 @@ const rp = (n) => new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).f
 // Opname sesi massal: HITUNG (input fisik) -> REVIEW (4 kolom) -> PUTUS -> SELESAI.
 export default function OpnamePage() {
     const navigate = useNavigate();
+    const [params] = useSearchParams();
     const [daftar, setDaftar] = useState([]);
     const [buka, setBuka] = useState(null); // detail sesi terbuka
     const [pesan, setPesan] = useState('');
@@ -32,6 +33,15 @@ export default function OpnamePage() {
     }, []);
 
     useEffect(() => { muatDaftar(); }, [muatDaftar]);
+
+    // Deep-link dari lonceng sampling: /opname?buka=SOP-... langsung buka sesinya (1x per id).
+    const dibukaRef = useRef('');
+    useEffect(() => {
+        const id = (params.get('buka') || '').trim();
+        if (!id || dibukaRef.current === id) return;
+        dibukaRef.current = id;
+        muatDetail(id).catch(e => setPesan(e.message));
+    }, [params, muatDetail]);
 
     async function aksi(fn, okMsg, confirmMsg) {
         if (confirmMsg && !window.confirm(confirmMsg)) return;
@@ -99,9 +109,14 @@ export default function OpnamePage() {
     const { currentItems, currentPage, totalPages, nextPage, prevPage } = usePagination(tampilHitung, 20);
 
     const review = useMemo(() => {
-        if (!buka) return { hitung: [], belum: 0 };
+        if (!buka) return { hitung: [], belum: 0, arsip: false, macam: 0, kiniTotal: 0, selisihTotal: 0 };
         const hitung = (buka.items || []).filter(it => it.fisik != null);
-        return { hitung, belum: (buka.items || []).length - hitung.length };
+        const arsip = buka.status === 'SELESAI' || buka.status === 'BATAL';
+        // Arsip: selisih vs snapshot awal (fisik-kini selalu 0 pasca-putus).
+        const selisihTampil = (it) => arsip ? Number(it.fisik ?? 0) - Number(it.sistem ?? 0) : (it.selisih || 0);
+        const kiniTotal = hitung.reduce((a, it) => a + (Number(it.kini ?? it.fisik) || 0), 0);
+        const selisihTotal = hitung.reduce((a, it) => a + selisihTampil(it), 0);
+        return { hitung, belum: (buka.items || []).length - hitung.length, arsip, macam: hitung.length, kiniTotal, selisihTotal, selisihTampil };
     }, [buka]);
 
     return (
@@ -131,7 +146,8 @@ export default function OpnamePage() {
                                     <span className='fw-medium small'>{s.idSesi}</span>{' '}
                                     <Badge bg={s.status === 'SELESAI' ? 'success' : s.status === 'BATAL' ? 'secondary' : 'warning'}>
                                         {s.status}
-                                    </Badge>
+                                    </Badge>{' '}
+                                    {s.total <= 3 && <Badge bg='info'>Mini</Badge>}
                                     <div className='text-muted' style={{ fontSize: '11px' }}>
                                         {s.dihitung}/{s.total} terhitung • {s.bergerak} bergerak
                                     </div>
@@ -221,32 +237,44 @@ export default function OpnamePage() {
                         <p className='small text-muted'>
                             {review.hitung.length} terhitung
                             {review.belum > 0 && ` • ${review.belum} belum dihitung (tak ikut)`}
+                            {review.arsip && review.hitung.length > 0 && (
+                                <> • {review.macam} macam • {review.kiniTotal} kini • selisih total {review.selisihTotal > 0 ? `+${review.selisihTotal}` : review.selisihTotal}</>
+                            )}
                         </p>
                         <div style={{ maxHeight: '55vh', overflowY: 'auto' }}>
                             <Table striped bordered size='sm' className='mb-0'>
                                 <thead>
                                     <tr>
                                         <th>Nama</th>
-                                        <th className='text-end'>Kuantitas</th>
+                                        <th className='text-end'>Sistem</th>
+                                        <th className='text-end'>Fisik/Kini</th>
                                         <th className='text-end'>Harga Satuan</th>
                                         <th className='text-end'>Harga Total</th>
                                         <th className='text-end'>Selisih</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {review.hitung.map(it => (
-                                        <tr key={it.id} className={it.selisih ? 'table-warning' : ''}>
+                                    {review.hitung.map(it => {
+                                        const s = review.selisihTampil ? review.selisihTampil(it) : (it.selisih || 0);
+                                        return (
+                                        <tr key={it.id} className={s ? 'table-warning' : ''}>
                                             <td>{it.nama}{it.merk ? ` - ${it.merk}` : ''}</td>
-                                            <td className='text-end'>{it.fisik} {it.satuan}</td>
+                                            <td className='text-end text-muted'>{it.sistem} {it.satuan}</td>
+                                            <td className='text-end'>{it.fisik} {it.satuan}
+                                                {it.kini != null && Number(it.kini) !== Number(it.fisik) && (
+                                                    <div className='text-muted' style={{ fontSize: '11px' }}>kini {it.kini}</div>
+                                                )}
+                                            </td>
                                             <td className='text-end'>{it.harga != null ? rp(it.harga) : '-'}</td>
                                             <td className='text-end'>{it.harga != null ? rp(it.fisik * it.harga) : '-'}</td>
-                                            <td className='text-end fw-bold' style={it.selisih ? { color: it.selisih > 0 ? '#198754' : '#dc3545' } : {}}>
-                                                {it.selisih > 0 ? `+${it.selisih}` : (it.selisih || 0)}
+                                            <td className='text-end fw-bold' style={s ? { color: s > 0 ? '#198754' : '#dc3545' } : {}}>
+                                                {s > 0 ? `+${s}` : s}
                                             </td>
                                         </tr>
-                                    ))}
+                                        );
+                                    })}
                                     {review.hitung.length === 0 && (
-                                        <tr><td colSpan={5} className='text-center text-muted'>Kosong.</td></tr>
+                                        <tr><td colSpan={6} className='text-center text-muted'>Kosong.</td></tr>
                                     )}
                                 </tbody>
                             </Table>

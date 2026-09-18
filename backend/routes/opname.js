@@ -4,22 +4,8 @@ const express = require('express');
 const router = express.Router();
 const { sb, nowIso, kurangStock } = require('../../db');
 const { wajibGudang } = require('../lib/auth');
-const { jakartaParts } = require('../lib/waktu');
-const { catatTransaksi } = require('../lib/data');
+const { catatTransaksi, buatIdSesi, sesiTerbuka } = require('../lib/data');
 const { kanonikSatuan } = require('../lib/konversi');
-
-async function buatIdSesi() {
-  const today = jakartaParts(new Date()).ymd.replaceAll('-', '');
-  const r = await sb.from('opname_sesi').select('id_sesi', { count: 'exact', head: true }).like('id_sesi', `SOP-${today}%`);
-  if (r.error) throw new Error(r.error.message);
-  return `SOP-${today}-${String((r.count || 0) + 1).padStart(3, '0')}`;
-}
-
-async function sesiTerbuka() {
-  const r = await sb.from('opname_sesi').select('id_sesi').in('status', ['HITUNG', 'REVIEW']).limit(1);
-  if (r.error) throw new Error(r.error.message);
-  return (r.data && r.data[0]) || null;
-}
 
 async function ambilSesi(id) {
   const r = await sb.from('opname_sesi').select('*').eq('id_sesi', String(id).trim()).maybeSingle();

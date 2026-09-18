@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Form, Button, Card, Alert } from 'react-bootstrap';
 import { PackagePlus } from 'lucide-react';
 import { formatRibu, parseRibu } from '../../utils/formatRupiah';
+import { fetchVendor } from '../../api/client';
 import { opsiKategori } from '../../utils/kategori';
 import InputKategori from '../stock/InputKategori';
 
@@ -17,8 +18,14 @@ export default function FormBarangBaru({ id, onSubmit, daftarBarang }) {
     const [keterangan, setKeterangan] = useState('');
     const [minimum, setMinimum] = useState(5);
     const [totalBayar, setTotalBayar] = useState('');
+    const [vendor, setVendor] = useState('');
+    const [daftarVendor, setDaftarVendor] = useState([]);
     const [errorMsg, setErrorMsg] = useState(null);
     const daftarKategori = useMemo(() => opsiKategori(daftarBarang), [daftarBarang]);
+
+    useEffect(() => {
+        fetchVendor().then(setDaftarVendor).catch(() => setDaftarVendor([]));
+    }, []);
 
     function handleSubmit() {
         if (!nama.trim()) { setErrorMsg('Nama Barang wajib diisi.'); return; }
@@ -40,6 +47,7 @@ export default function FormBarangBaru({ id, onSubmit, daftarBarang }) {
             satuanGudang: satuanGudang.trim(),
             isiPerGudang: isiPerGudang === '' ? null : Number(isiPerGudang),
             keterangan: keterangan.trim(),
+            vendor: vendor || undefined,
         });
     }
 
@@ -102,6 +110,17 @@ export default function FormBarangBaru({ id, onSubmit, daftarBarang }) {
                 <Form.Group className="mb-3">
                     <Form.Label className="text-muted small mb-1">Total bayar stock awal (Rp) *</Form.Label>
                     <Form.Control type="text" inputMode="numeric" value={formatRibu(totalBayar)} onChange={(e) => setTotalBayar(e.target.value.replace(/\D/g, ''))} placeholder="Wajib diisi" />
+                </Form.Group>
+
+                <Form.Group className="mb-3">
+                    <Form.Label className="text-muted small mb-1">Vendor <span className="fst-italic">— opsional</span></Form.Label>
+                    <Form.Select size="sm" value={vendor} onChange={(e) => setVendor(e.target.value)}
+                        aria-label="Vendor (opsional)">
+                        <option value="">— Tanpa vendor —</option>
+                        {daftarVendor.map(v => (
+                            <option key={v.id} value={v.nama}>{v.nama}</option>
+                        ))}
+                    </Form.Select>
                 </Form.Group>
 
                 <Button variant="success" className="w-100 d-flex align-items-center justify-content-center gap-2" onClick={handleSubmit}>

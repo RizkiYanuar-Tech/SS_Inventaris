@@ -31,7 +31,7 @@ export default function TransaksiBarangPage(){
         );
     }
 
-    async function handleSubmit(jenis, jumlah, satuanInput, totalBayar){
+    async function handleSubmit(jenis, jumlah, satuanInput, totalBayar, vendor){
         setStatus({type: 'info', text: 'Memproses transaksi...'});
 
         try{
@@ -40,7 +40,8 @@ export default function TransaksiBarangPage(){
                 jenis,
                 jumlah,
                 satuanInput,
-                totalBayar
+                totalBayar,
+                vendor
             });
 
             if (result && result.sukses){

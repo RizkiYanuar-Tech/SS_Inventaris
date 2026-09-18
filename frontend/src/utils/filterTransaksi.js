@@ -8,7 +8,11 @@ function parseDateInputLocal(dateStr){
     return new Date(year, month - 1, day)
 }
 
-export function filterTransaksi(items, {search, startDate, endDate, jenis }){
+export function isOpname(item){
+    return String(item?.keterangan || '').startsWith('Opname #');
+}
+
+export function filterTransaksi(items, {search, startDate, endDate, jenis, sembunyikanOpname }){
     const start = parseDateInputLocal(startDate)
     const end = parseDateInputLocal(endDate)
     
@@ -16,6 +20,7 @@ export function filterTransaksi(items, {search, startDate, endDate, jenis }){
     if (end) end.setHours(23, 59,59, 999)
 
     return items.filter((item) => {
+        if (sembunyikanOpname && isOpname(item)) return false;
         const isSearchMatch =
             item.nama.toLowerCase().includes(search.toLowerCase()) ||
             (item.varian && item.varian.toLowerCase().includes(search.toLowerCase())) ||

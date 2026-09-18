@@ -1,13 +1,16 @@
 import { useMemo, useState } from 'react';
 import { Modal, Button, Form, Table } from 'react-bootstrap';
-import { hitungAsetPerTanggal, asetPerTanggalKeCsv } from '../../utils/asetPerTanggal';
+import { hitungAsetPerTanggal, asetPerTanggalKeCsv, asetRentangKeCsv } from '../../utils/asetPerTanggal';
 import { barangKeCsv, unduhCsv } from '../../utils/unduhCsv';
 
-// Modal unduh aset: preview (hanya barang bermutasi s/d H) + unduh kini/per-tanggal.
+// Modal unduh aset: preview (hanya barang bermutasi s/d H) + unduh kini/per-tanggal/rentang.
 // Preview dan CSV pakai hitungan yang sama (hitungAsetPerTanggal).
 export default function UnduhAsetModal({ show, onTutup, barang, transaksi }) {
     const hariIni = new Date().toISOString().slice(0, 10);
     const [tgl, setTgl] = useState(hariIni);
+    const [tglAwal, setTglAwal] = useState(hariIni);
+    const [tglAkhir, setTglAkhir] = useState(hariIni);
+    const [errRentang, setErrRentang] = useState('');
 
     const hasil = useMemo(
         () => hitungAsetPerTanggal(barang, transaksi, tgl || hariIni),
@@ -26,6 +29,22 @@ export default function UnduhAsetModal({ show, onTutup, barang, transaksi }) {
         if (!tgl) return;
         unduhCsv(`aset-inventory-${tgl.replace(/-/g, '')}-per-tanggal.csv`,
             asetPerTanggalKeCsv(barang, transaksi, tgl));
+    }
+
+    const nHariRentang = (() => {
+        if (!tglAwal || !tglAkhir) return 0;
+        return Math.round((new Date(`${tglAkhir}T12:00:00+07:00`) - new Date(`${tglAwal}T12:00:00+07:00`)) / 86400000) + 1;
+    })();
+    const rentangValid = nHariRentang >= 1 && nHariRentang <= 31 && tglAkhir <= hariIni;
+
+    function unduhRentang() {
+        setErrRentang('');
+        try {
+            unduhCsv(`aset-inventory-${tglAwal.replace(/-/g, '')}_sd_${tglAkhir.replace(/-/g, '')}.csv`,
+                asetRentangKeCsv(barang, transaksi, tglAwal, tglAkhir));
+        } catch (e) {
+            setErrRentang(e.message);
+        }
     }
 
     return (
@@ -47,6 +66,25 @@ export default function UnduhAsetModal({ show, onTutup, barang, transaksi }) {
                         Unduh kini
                     </Button>
                 </div>
+                <div className='d-flex gap-2 align-items-end mb-1'>
+                    <Form.Group className='flex-fill'>
+                        <Form.Label className='text-muted small mb-1'>Rentang awal</Form.Label>
+                        <Form.Control type='date' value={tglAwal} max={tglAkhir || hariIni}
+                            onChange={e => setTglAwal(e.target.value)} />
+                    </Form.Group>
+                    <Form.Group className='flex-fill'>
+                        <Form.Label className='text-muted small mb-1'>Rentang akhir</Form.Label>
+                        <Form.Control type='date' value={tglAkhir} min={tglAwal} max={hariIni}
+                            onChange={e => setTglAkhir(e.target.value)} />
+                    </Form.Group>
+                    <Button variant='outline-primary' onClick={unduhRentang} disabled={!rentangValid}>
+                        Unduh rentang
+                    </Button>
+                </div>
+                {errRentang && <p className='small text-danger mb-1'>{errRentang}</p>}
+                {!errRentang && nHariRentang > 31 && (
+                    <p className='small text-danger mb-1'>Rentang maksimal 31 hari.</p>
+                )}
                 <p className='small text-muted mb-2'>
                     Preview: {tampil.length} barang bermutasi s/d {tgl || hariIni}
                     {sembunyi > 0 && ` (+ ${sembunyi} tanpa mutasi disembunyikan)`}
