@@ -26,7 +26,7 @@ export function filterTransaksi(items, {search, startDate, endDate, jenis, sembu
             (item.varian && item.varian.toLowerCase().includes(search.toLowerCase())) ||
             (item.idKirim && item.idKirim.toLowerCase().includes(search.toLowerCase())) ||
             (item.keterangan && item.keterangan.toLowerCase().includes(search.toLowerCase())) ||
-            (item.id != null && item.id.toString().includes(search))
+            (item.idBarang != null && String(item.idBarang).toLowerCase().includes(search.toLowerCase()))
             
         const tanggal = parseTimestamp(item.timestamp)
         const isDateMatch = !tanggal || ((!start || tanggal >= start) && (!end || tanggal <= end))

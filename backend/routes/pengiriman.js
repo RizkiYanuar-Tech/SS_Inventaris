@@ -1,11 +1,10 @@
-// Route pengiriman + terima outlet + notifikasi + surat jalan (potong-pindah murni dari server.js lama).
+// Route pengiriman + notifikasi + surat jalan cetak.
 const express = require('express');
-const crypto = require('crypto');
 const router = express.Router();
 const { sb } = require('../../db');
 const { wajibGudang } = require('../lib/auth');
 const { jakartaParts, formatWaktuBukti, NAMA_BULAN } = require('../lib/waktu');
-const { buatRingkasanKirim, buatAlasan, tambahRiwayat } = require('../lib/ringkas');
+const { tambahRiwayat } = require('../lib/ringkas');
 const {
   cariPengiriman, pengirimanKeJson, simpanPengiriman,
   cariPesanan, simpanPesanan, mirrorPesanan, tulisNotifikasi,
@@ -22,7 +21,7 @@ router.get('/api/pengiriman', wajibGudang, async (req, res) => {
   }
 });
 
-// Tandai Dikirim (manual): SIAP KIRIM -> DIKIRIM, token berita acara lahir.
+// Tandai Dikirim (manual): SIAP KIRIM -> DIKIRIM; surat muncul di Tab Surat Jalan outlet.
 // Gerbang verifikasi: ceklis per baris by POSISI index (ID bisa kembar '-') + foto kirim opsional.
 // Gagal upload foto di frontend tak memblokir — foto null tetap boleh Tandai.
 router.post('/api/pengiriman/:id/kirim', wajibGudang, async (req, res) => {
@@ -49,19 +48,17 @@ router.post('/api/pengiriman/:id/kirim', wajibGudang, async (req, res) => {
       return res.status(400).json({ sukses: false, pesan: `Baris asing bukan bagian kiriman: ${asing.join(', ')}.` });
     }
     const hasil = dikirim.map(it => ({ ...it, dipindai: true, cara: 'ceklis' }));
-    const token = crypto.randomUUID();
     row.items_json = hasil;
-    row.token = token;
+    row.token = '';
     if (fotoKirim !== undefined) row.foto_kirim = String(fotoKirim || '').trim() || null;
     row.tanggal_kirim = formatWaktuBukti();
     row.status = 'DIKIRIM';
     row.riwayat_status = tambahRiwayat(row.riwayat_status, `Diverifikasi ceklis: ${hasil.map(it => it.nama).join(', ')}${row.foto_kirim ? ' + foto paket' : ' (tanpa foto)'}`);
-    row.riwayat_status = tambahRiwayat(row.riwayat_status, 'Dikirim (link berita acara aktif)');
+    row.riwayat_status = tambahRiwayat(row.riwayat_status, 'Dikirim (outlet cek Tab Surat Jalan)');
     await simpanPengiriman(row);
-    await mirrorPesanan(row.id_pesan, 'DIKIRIM', 'Dikirim (link berita acara aktif)');
-    // WA admin fire-and-forget (path saja: domain publik tak dikenal server; URL penuh via Salin)
-    console.log(`*LINK BERITA ACARA*\nKirim ${row.id_kirim} ke ${row.outlet} DIKIRIM.\nLink: /terima/${token}\nTeruskan ke outlet via WA. Outlet juga bisa buka link pemesanan → tab Surat Jalan.`);
-    res.json({ sukses: true, token, pesan: `Pengiriman ${row.id_kirim} DIKIRIM. Kirim link berita acara ke outlet via WA.` });
+    await mirrorPesanan(row.id_pesan, 'DIKIRIM', 'Dikirim (outlet cek Tab Surat Jalan)');
+    console.log(`*PENGIRIMAN DIKIRIM*\nKirim ${row.id_kirim} ke ${row.outlet} DIKIRIM. Outlet cek Tab Surat Jalan di link pesanannya.`);
+    res.json({ sukses: true, pesan: `Pengiriman ${row.id_kirim} DIKIRIM. Outlet cek Tab Surat Jalan di link pesanannya.` });
   } catch (err) {
     console.error(err);
     res.status(500).json({ sukses: false, pesan: err.message });
@@ -80,10 +77,10 @@ router.post('/api/pengiriman/:id/batal-kirim', wajibGudang, async (req, res) => 
     if (row.status !== 'DIKIRIM') {
       return res.status(409).json({ sukses: false, pesan: `Status ${row.status} — hanya DIKIRIM yang bisa dibatalkan, dan tidak bisa setelah outlet lapor terima.` });
     }
-    row.token = ''; // link lama mati
+    row.token = ''; // kolom legacy, selalu kosong (tanpa link lama)
     row.tanggal_kirim = '';
     row.status = 'SIAP KIRIM';
-    row.riwayat_status = tambahRiwayat(row.riwayat_status, `Dibatalkan: ${String(alasan).trim()} (link lama mati)`);
+    row.riwayat_status = tambahRiwayat(row.riwayat_status, `Dibatalkan: ${String(alasan).trim()} (tanpa link lama)`);
     await simpanPengiriman(row);
     // Mirror: asal DISETUJUI/SEBAGIAN diturunkan dari keputusan per item (ada TOLAK = sebagian)
     try {
@@ -242,80 +239,6 @@ router.get('/api/surat-jalan/:idKirim', wajibGudang, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
-  }
-});
-
-// Halaman outlet (publik, tanpa data internal): baca via token
-router.get('/api/pengiriman/:token/lihat', async (req, res) => {
-  try {
-    const row = await cariPengiriman(req.params.token, true);
-    if (!row) return res.status(404).json({ error: 'Link tidak valid.' });
-    const data = pengirimanKeJson(row, true);
-    data.sudahDikonfirmasi = ['DITERIMA', 'DITERIMA SEBAGIAN'].includes(row.status);
-    res.json(data);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Laporan terima outlet: hanya dari DIKIRIM, nama wajib, baris tanpa ceklis wajib jumlah + keterangan
-router.post('/api/pengiriman/:token/konfirmasi', async (req, res) => {
-  try {
-    const { namaPenerima, items, fotoTerima } = req.body;
-    if (!namaPenerima || !String(namaPenerima).trim()) {
-      return res.status(400).json({ sukses: false, pesan: 'Nama penerima wajib diisi.' });
-    }
-    const row = await cariPengiriman(req.params.token, true);
-    if (!row) return res.status(404).json({ sukses: false, pesan: 'Link tidak valid.' });
-    if (row.status !== 'DIKIRIM') {
-      return res.status(409).json({ sukses: false, pesan: 'Laporan ini sudah dikirim sebelumnya (terkunci).' });
-    }
-    let dikirim = row.items_json;
-    if (typeof dikirim === 'string') { try { dikirim = JSON.parse(dikirim || '[]'); } catch { dikirim = []; } }
-    if (!Array.isArray(dikirim)) dikirim = [];
-    if (!Array.isArray(items) || items.length !== dikirim.length) {
-      return res.status(400).json({ sukses: false, pesan: 'Data item tidak lengkap.' });
-    }
-    let sebagian = false;
-    const hasil = dikirim.map((asli, i) => {
-      const lap = items[i] || {};
-      const ceklis = lap.ceklis === true;
-      const jumlahTerima = lap.jumlahTerima === '' || lap.jumlahTerima == null ? null : Number(lap.jumlahTerima);
-      const keterangan = String(lap.keterangan || '').trim();
-      if (ceklis) {
-        if (jumlahTerima != null && jumlahTerima !== Number(asli.jumlahKirim)) sebagian = true;
-        return { ...asli, ceklis: true, jumlahTerima: jumlahTerima ?? Number(asli.jumlahKirim), keterangan };
-      }
-      if (jumlahTerima == null || Number.isNaN(jumlahTerima)) throw new Error(`Item "${asli.nama}": isi jumlah terima atau ceklis jika sesuai.`);
-      if (!keterangan) throw new Error(`Item "${asli.nama}": keterangan wajib karena tidak diceklis.`);
-      // tidak diceklis = tetap sebagian walau jumlah sama
-      sebagian = true;
-      return { ...asli, ceklis: false, jumlahTerima, keterangan };
-    });
-
-    const status = sebagian ? 'DITERIMA SEBAGIAN' : 'DITERIMA';
-    row.items_json = hasil;
-    row.ringkasan = buatRingkasanKirim(hasil.map(it => ({
-      nama: it.nama,
-      qtyKirim: `${it.jumlahKirim} -> ${it.jumlahTerima}`,
-    })));
-    row.alasan = buatAlasan(hasil);
-    row.nama_penerima = String(namaPenerima).trim();
-    row.tanggal_terima = formatWaktuBukti();
-    if (fotoTerima !== undefined) row.foto_terima = String(fotoTerima || '').trim() || null;
-    row.status = status;
-    row.riwayat_status = tambahRiwayat(row.riwayat_status, `Dilaporkan outlet (${status}) oleh ${String(namaPenerima).trim()}${row.foto_terima ? ' + foto' : ''}`);
-    await simpanPengiriman(row);
-    await mirrorPesanan(row.id_pesan, status, `Dilaporkan outlet (${status})`);
-    // Jejak laporan di log (lonceng dalam-web menyusul)
-    console.log(`*LAPORAN TERIMA ${status}*\nKirim: ${row.id_kirim}${row.id_pesan ? ` (pesan ${row.id_pesan})` : ''}\nOutlet: ${row.outlet}\n${row.ringkasan || ''}${(row.alasan || '').trim() ? `\nAlasan: ${String(row.alasan).trim()}` : ''}\nPenerima: ${String(namaPenerima).trim()}`);
-    await tulisNotifikasi(`LAPORAN TERIMA ${status} — ${row.id_kirim}`,
-      `${row.outlet}: ${row.ringkasan || ''} (oleh ${String(namaPenerima).trim()})`, row.id_kirim);
-    res.json({ sukses: true, status, pesan: status === 'DITERIMA' ? 'Terima kasih! Laporan diterima penuh.' : 'Laporan diterima sebagian, gudang akan menindaklanjuti kekurangan.' });
-  } catch (err) {
-    console.error(err);
-    res.status(400).json({ sukses: false, pesan: err.message });
   }
 });
 

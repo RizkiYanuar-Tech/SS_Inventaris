@@ -8,10 +8,31 @@ const { hitungAvg, kanonikSatuan } = require('../lib/konversi');
 const { buatIdBarang, catatTransaksi, cekThreshold } = require('../lib/data');
 
 // Vendor Masuk opsional: snapshot nama ke keterangan transaksi ("Vendor: X").
-// Tanpa lookup master (rename/hapus vendor tak merusak history, seperti snapshot nama_barang).
+// Masukan baru = vendorId (dropdown kirim ID, tahan rename); legacy nama string
+// tetap didukung (lookup by nama, tak-cocok = snapshot teks saja, tak gagalkan tulis).
 function vendorKeKeterangan(vendor) {
   const nama = String(vendor || '').trim().replace(/\s+/g, ' ').slice(0, 120);
   return nama ? `Vendor: ${nama}` : null;
+}
+async function vendorKeCatat(body) {
+  const idMentah = body.vendorId != null && body.vendorId !== '' ? Number(body.vendorId) : null;
+  if (idMentah != null && !(idMentah > 0)) {
+    throw Object.assign(new Error('ID vendor tidak valid.'), { status: 400 });
+  }
+  if (idMentah != null) {
+    const v = await sb.from('vendor').select('id,nama_vendor').eq('id', idMentah).maybeSingle();
+    if (v.error) throw new Error(v.error.message);
+    if (!v.data) {
+      throw Object.assign(new Error('Vendor tidak ditemukan (daftar berubah, pilih ulang).'), { status: 400 });
+    }
+    return { idVendor: v.data.id, keterangan: vendorKeKeterangan(v.data.nama_vendor) };
+  }
+  const namaLama = String(body.vendor || '').trim();
+  if (!namaLama) return { idVendor: null, keterangan: null };
+  const v = await sb.from('vendor').select('id,nama_vendor').eq('nama_vendor', namaLama.replace(/\s+/g, ' ')).maybeSingle();
+  if (v.error) throw new Error(v.error.message);
+  if (!v.data) return { idVendor: null, keterangan: vendorKeKeterangan(namaLama) };
+  return { idVendor: v.data.id, keterangan: vendorKeKeterangan(v.data.nama_vendor) };
 }
 
 router.get("/api/barang", wajibGudang, async (req, res) => {
@@ -57,6 +78,7 @@ router.get("/api/transaksi", wajibGudang, async(req, res) => {
       hargaSatuan: row.harga_satuan != null ? Number(row.harga_satuan) : null,
       idTransaksi: row.id_transaksi ?? null,
       keterangan: row.keterangan || '',
+      idVendor: row.id_vendor ?? null,
     }));
     res.json(data);
   } catch (err){
@@ -68,7 +90,7 @@ router.get("/api/transaksi", wajibGudang, async(req, res) => {
 // Tambah barang baru (id opsional -> auto MNL urut global; tanpa kolom ID di UI manual)
 router.post('/api/tambahBarangBaru', wajibGudang, async (req, res) => {
   try {
-    const { id, nama, varian, kategori, jumlah, restock, satuanEceran, satuanGudang, isiPerGudang, keterangan, totalBayar, vendor } = req.body;
+    const { id, nama, varian, kategori, jumlah, restock, satuanEceran, satuanGudang, isiPerGudang, keterangan, totalBayar } = req.body;
     const namaBersih = String(nama || '').trim().replace(/\s+/g, ' ');
     if (!namaBersih) {
       return res.status(400).json({ sukses: false, pesan: 'Nama Barang wajib diisi.' });
@@ -124,14 +146,15 @@ router.post('/api/tambahBarangBaru', wajibGudang, async (req, res) => {
     });
     if (ins.error) throw new Error(ins.error.message);
 
+    const vCatat = await vendorKeCatat(req.body);
     await catatTransaksi(idPakai, namaBersih, varian, kategoriSimpan, 'Masuk', Number(jumlah) || 0, satuan,
       Number(jumlah) > 0 && Number(totalBayar) > 0 ? Number(totalBayar) / Number(jumlah) : null,
-      null, vendorKeKeterangan(vendor));
+      null, vCatat.keterangan, vCatat.idVendor);
 
     res.json({ sukses: true, pesan: `Barang baru ${namaBersih} tersimpan ke database. Stock awal: ${Number(jumlah) || 0} ${satuan}` });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ sukses: false, pesan: 'Gagal menyimpan: ' + err.message });
+    res.status(err.status || 500).json({ sukses: false, pesan: (err.status ? '' : 'Gagal menyimpan: ') + err.message });
   }
 });
 
@@ -238,13 +261,19 @@ router.delete('/api/barang/:id', wajibGudang, async (req, res) => {
 // Proses transaksi masuk/keluar-
 router.post('/api/prosesTransaksi', wajibGudang, async (req, res) => {
   try {
-    const { id, jenis, jumlah, satuanInput, totalBayar, vendor } = req.body;
+    const { id, jenis, jumlah, satuanInput, totalBayar } = req.body;
     const b = await sb.from('barang_inventory').select('*').eq('id_barang', String(id).trim()).maybeSingle();
     if (b.error) throw new Error(b.error.message);
     const row = b.data;
 
     if (!row) {
       return res.json({ sukses: false, pesan: 'Barang tidak ditemukan di database.' });
+    }
+    let vCatat = { idVendor: null, keterangan: null };
+    try {
+      vCatat = await vendorKeCatat(req.body);
+    } catch (e) {
+      return res.status(e.status || 500).json({ sukses: false, pesan: e.message });
     }
 
     // Eceran-saja: frontend (kalkulator) yang mengalikan dus -> eceran.
@@ -298,7 +327,8 @@ router.post('/api/prosesTransaksi', wajibGudang, async (req, res) => {
                         satuanEceran,
                         hargaSatuanTrx,
                         null,
-                        jenis === 'Masuk' ? vendorKeKeterangan(vendor) : null);
+                        jenis === 'Masuk' ? vCatat.keterangan : null,
+                        jenis === 'Masuk' ? vCatat.idVendor : null);
     await cekThreshold(
       row.id_barang,
       row.nama_barang,

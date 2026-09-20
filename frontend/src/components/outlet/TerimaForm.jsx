@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Card, Form, Button, Badge, Alert } from 'react-bootstrap';
-import { lihatPengiriman, konfirmasiTerima } from '../../api/client';
+import { lihatSurat, konfirmasiSurat } from '../../api/client';
 import { uploadFotoBukti } from '../../utils/fotoBukti';
 
-// Isi surat jalan reusable — dipakai Tab Surat Jalan (/pesan) + halaman /terima/:token.
-// token = uuid kiriman sekali pakai; onSelesai opsional (misal refresh riwayat setelah lapor).
-export default function TerimaForm({ token, onSelesai }) {
+// Isi surat jalan outlet — hanya di balik sesi login (Tab Surat Jalan di /pesan).
+// Props: tokenOutlet (sesi link permanen) + idKirim; onSelesai opsional (refresh riwayat setelah lapor).
+export default function TerimaForm({ tokenOutlet, idKirim, onSelesai }) {
     const [data, setData] = useState(null);
     const [error, setError] = useState(null);
     const [laporan, setLaporan] = useState({}); // {index: {ceklis, jumlahTerima, keterangan}}
@@ -15,10 +15,10 @@ export default function TerimaForm({ token, onSelesai }) {
     const [hasil, setHasil] = useState(null);
 
     useEffect(() => {
-        if (!token) return;
+        if (!tokenOutlet || !idKirim) return;
         setData(null); setError(null); setHasil(null); setLaporan({}); setNama(''); setFoto(null);
-        lihatPengiriman(token).then(setData).catch(e => setError(e.message));
-    }, [token]);
+        lihatSurat(tokenOutlet, idKirim).then(setData).catch(e => setError(e.message));
+    }, [tokenOutlet, idKirim]);
 
     // Keyed by POSISI index — ID bisa kembar ('-'); keyed by id menularkan ceklis ke semua line se-ID.
     function setLap(i, patch) {
@@ -33,7 +33,7 @@ export default function TerimaForm({ token, onSelesai }) {
         setSaving(true);
         try {
             const fotoUrl = foto ? await uploadFotoBukti(data.idKirim, 'terima', foto) : null;
-            const res = await konfirmasiTerima(token, {
+            const res = await konfirmasiSurat(tokenOutlet, idKirim, {
                 namaPenerima: nama.trim(),
                 fotoTerima: fotoUrl,
                 items: data.items.map((it, i) => ({
@@ -44,7 +44,7 @@ export default function TerimaForm({ token, onSelesai }) {
             });
             setHasil({ sukses: true, pesan: res.pesan + (foto && !fotoUrl ? ' (foto gagal diupload)' : ''), status: res.status });
             // Ambil ulang dari server agar tampilan terkunci bawa ceklis/jumlahTerima asli
-            const segar = await lihatPengiriman(token);
+            const segar = await lihatSurat(tokenOutlet, idKirim);
             setData(segar);
             onSelesai?.(res);
         } catch (e) {

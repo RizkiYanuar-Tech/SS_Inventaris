@@ -18,7 +18,7 @@ export default function FormBarangBaru({ id, onSubmit, daftarBarang }) {
     const [keterangan, setKeterangan] = useState('');
     const [minimum, setMinimum] = useState(5);
     const [totalBayar, setTotalBayar] = useState('');
-    const [vendor, setVendor] = useState('');
+    const [vendorId, setVendorId] = useState('');
     const [daftarVendor, setDaftarVendor] = useState([]);
     const [errorMsg, setErrorMsg] = useState(null);
     const daftarKategori = useMemo(() => opsiKategori(daftarBarang), [daftarBarang]);
@@ -47,7 +47,7 @@ export default function FormBarangBaru({ id, onSubmit, daftarBarang }) {
             satuanGudang: satuanGudang.trim(),
             isiPerGudang: isiPerGudang === '' ? null : Number(isiPerGudang),
             keterangan: keterangan.trim(),
-            vendor: vendor || undefined,
+            vendorId: vendorId ? Number(vendorId) : undefined,
         });
     }
 
@@ -114,11 +114,11 @@ export default function FormBarangBaru({ id, onSubmit, daftarBarang }) {
 
                 <Form.Group className="mb-3">
                     <Form.Label className="text-muted small mb-1">Vendor <span className="fst-italic">— opsional</span></Form.Label>
-                    <Form.Select size="sm" value={vendor} onChange={(e) => setVendor(e.target.value)}
+                    <Form.Select size="sm" value={vendorId} onChange={(e) => setVendorId(e.target.value)}
                         aria-label="Vendor (opsional)">
                         <option value="">— Tanpa vendor —</option>
                         {daftarVendor.map(v => (
-                            <option key={v.id} value={v.nama}>{v.nama}</option>
+                            <option key={v.id} value={v.id}>{v.nama}</option>
                         ))}
                     </Form.Select>
                 </Form.Group>

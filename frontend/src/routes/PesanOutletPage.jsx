@@ -229,10 +229,6 @@ export default function PesanOutletPage() {
         }
     }
 
-    function tokenDariLink(linkTerima) {
-        return String(linkTerima || '').split('/terima/')[1] || '';
-    }
-
     // Belum login -> form password inline (tanpa BottomNav; username = bukan slug).
     if (!masuk) {
         return (
@@ -267,6 +263,9 @@ export default function PesanOutletPage() {
                                 <Button variant='dark' className='w-100 masuk' disabled={busyMasuk} onClick={submitMasuk}>
                                     {busyMasuk ? '...' : 'Masuk'}
                                 </Button>
+                                <p className='text-center text-muted mt-2 mb-0' style={{ fontSize: '11px' }}>
+                                    Lupa password? Hubungi gudang via WA/telepon — reset via Kelola Akun.
+                                </p>
                             </Form>
                         ) : (
                             <Form onSubmit={submitAwal}>
@@ -307,7 +306,7 @@ export default function PesanOutletPage() {
     const jmlAktif = riwayat.filter(r => STATUS_AKTIF.includes(String(r.status || '').trim())).length;
     const perluLapor = (r) => String(r.status || '').trim() === 'DIKIRIM';
     // Perlu-lapor di atas, arsip di bawah; tiap grup tetap terbaru-di-atas (sort stabil).
-    const daftarSurat = riwayat.filter(r => r.linkTerima)
+    const daftarSurat = riwayat.filter(r => r.idKirim)
         .sort((a, b) => (perluLapor(b) ? 1 : 0) - (perluLapor(a) ? 1 : 0));
     const jmlLapor = daftarSurat.filter(perluLapor).length;
     // Pagination 5/halaman agar rapih di HP
@@ -514,7 +513,7 @@ export default function PesanOutletPage() {
                     </div>
                     {tampil.length === 0 && <p className='text-center text-muted small py-3'>Belum ada riwayat.</p>}
                     {riwayatTampil.map(r => (
-                        <TiketPesanan key={r.idPesan} pesanan={r} cta={r.linkTerima && (
+                        <TiketPesanan key={r.idPesan} pesanan={r} cta={r.idKirim && (
                             <Button size='sm' variant='outline-primary' className='w-100'
                                 onClick={() => bukaSuratJalan(r.idPesan)}>
                                 {String(r.status || '').trim() === 'DIKIRIM' ? 'Isi Surat Jalan' : 'Lihat Surat Jalan'}
@@ -541,7 +540,7 @@ export default function PesanOutletPage() {
                                 bawah={
                                     <Collapse in={buka}>
                                         <div className='mt-2 pt-2' style={{ borderTop: '1px dashed #dee2e6' }}>
-                                            {buka && <TerimaForm token={tokenDariLink(r.linkTerima)} onSelesai={() => muat()} />}
+                                            {buka && <TerimaForm tokenOutlet={token} idKirim={r.idKirim} onSelesai={() => muat()} />}
                                         </div>
                                     </Collapse>
                                 }

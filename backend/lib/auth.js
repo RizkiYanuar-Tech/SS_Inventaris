@@ -71,8 +71,39 @@ function wajibOutlet(req, res, next) {
   next();
 }
 
+// HTTPS di belakang proxy (ngrok/hosting): percayai X-Forwarded-Proto (lihat `trust proxy` di server.js).
+function apakahHttps(req) {
+  if (!req) return false;
+  if (req.secure) return true;
+  const proto = req.headers && String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  return proto === 'https';
+}
+// Flag `; Secure` hanya saat HTTPS (HTTP localhost/dev tetap bisa login).
+function atributSecure(req) {
+  return apakahHttps(req) ? '; Secure' : '';
+}
+
+// Sapu entri kedaluwarsa tiap jam (sesi 24 jam + rate 1 mnt); tanpa ubah perilaku.
+function mulaiPruneSesi() {
+  const sapu = () => {
+    try {
+      const kini = Date.now();
+      for (const [tok, exp] of sesiGudang) if (!(exp > kini)) sesiGudang.delete(tok);
+      for (const [tok, s] of sesiOutlet) if (!s || !(s.exp > kini)) sesiOutlet.delete(tok);
+      for (const [kunci, list] of emberRate) {
+        const sisa = (list || []).filter(t => kini - t < 60000);
+        if (sisa.length) emberRate.set(kunci, sisa);
+        else emberRate.delete(kunci);
+      }
+    } catch (e) { console.warn('prune sesi gagal:', e.message); }
+  };
+  const timer = setInterval(sapu, 3600 * 1000);
+  if (timer.unref) timer.unref();
+}
+
 module.exports = {
   hashKataSandi, cekKataSandi, kenaRate, bacaCookie,
   sesiGudang, UMUR_SESI_GUDANG_MS, wajibGudang,
   sesiOutlet, UMUR_SESI_OUTLET_MS, namaCookieOutlet, wajibOutlet,
+  apakahHttps, atributSecure, mulaiPruneSesi,
 };

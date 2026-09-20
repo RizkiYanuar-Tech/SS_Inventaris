@@ -3,7 +3,7 @@ const express = require('express');
 const crypto = require('crypto');
 const router = express.Router();
 const { sb } = require('../../db');
-const { hashKataSandi, cekKataSandi, kenaRate, bacaCookie, sesiGudang, UMUR_SESI_GUDANG_MS, wajibGudang } = require('../lib/auth');
+const { hashKataSandi, cekKataSandi, kenaRate, bacaCookie, sesiGudang, UMUR_SESI_GUDANG_MS, wajibGudang, atributSecure } = require('../lib/auth');
 
 router.post('/api/gudang/masuk', async (req, res) => {
   try {
@@ -22,7 +22,7 @@ router.post('/api/gudang/masuk', async (req, res) => {
     }
     const tok = crypto.randomBytes(32).toString('hex');
     sesiGudang.set(tok, Date.now() + UMUR_SESI_GUDANG_MS);
-    res.setHeader('Set-Cookie', `sesi_gudang=${tok}; HttpOnly; Path=/; Max-Age=86400; SameSite=Lax`);
+    res.setHeader('Set-Cookie', `sesi_gudang=${tok}; HttpOnly; Path=/; Max-Age=86400; SameSite=Lax${atributSecure(req)}`);
     res.json({ sukses: true, pesan: 'Masuk sebagai gudang.' });
   } catch (err) {
     console.error(err);
@@ -33,7 +33,7 @@ router.post('/api/gudang/masuk', async (req, res) => {
 router.post('/api/gudang/keluar', (req, res) => {
   const tok = bacaCookie(req, 'sesi_gudang');
   if (tok) sesiGudang.delete(tok);
-  res.setHeader('Set-Cookie', 'sesi_gudang=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax');
+  res.setHeader('Set-Cookie', `sesi_gudang=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax${atributSecure(req)}`);
   res.json({ sukses: true, pesan: 'Keluar.' });
 });
 

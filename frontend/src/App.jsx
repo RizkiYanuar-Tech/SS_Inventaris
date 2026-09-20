@@ -5,7 +5,6 @@ import InputManualPage from './routes/InputManualPage'
 import TransaksiPage from './routes/TransaksiPage'
 import TransaksiBarangPage from './routes/TransaksiBarangPage'
 import DaftarPengirimanPage from './routes/DaftarPengirimanPage'
-import TerimaBarangPage from './routes/TerimaBarangPage'
 import PesanOutletPage from './routes/PesanOutletPage'
 import GudangMasukPage from './routes/GudangMasukPage'
 import SuratJalanPrintPage from './routes/SuratJalanPrintPage'
@@ -16,7 +15,6 @@ import './App.css'
 
 // Halaman publik outlet: tanpa BottomNav gudang (cocok segmen persis agar /pesanan tak ikut hilang)
 const sembunyiNav = (pathname) =>
-  pathname === '/terima' || pathname.startsWith('/terima/') ||
   pathname === '/pesan' || pathname.startsWith('/pesan/') ||
   pathname === '/gudang-masuk' || pathname.startsWith('/surat-jalan/');
 
@@ -28,7 +26,6 @@ function App() {
     <div className='app-root' style={{ minHeight: '100vh', paddingBottom: tanpaNav ? 0 : '80px', backgroundColor: '#f3f4f6' }}>
       <Routes>
         {/* Publik: jalur outlet + login gudang */}
-        <Route path='/terima/:token' element={<TerimaBarangPage />}></Route>
         <Route path='/pesan/:slugToken' element={<PesanOutletPage />}></Route>
         <Route path='/gudang-masuk' element={<GudangMasukPage />}></Route>
         {/* Gudang: wajib sesi */}

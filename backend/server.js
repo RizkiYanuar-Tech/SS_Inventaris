@@ -12,8 +12,26 @@ const { hitungSlot, formatTanggalSlot, formatWaktuBukti } = require('./lib/waktu
 const { buatRingkasan, buatRingkasanKirim, buatAlasan } = require('./lib/ringkas');
 const { hitungAvg } = require('./lib/konversi');
 const { initDb, scheduleRandomSampling } = require('./lib/data');
+const { mulaiPruneSesi } = require('./lib/auth');
 
-app.use(cors());
+// Di belakang proxy (ngrok/hosting): percayai X-Forwarded-Proto agar deteksi HTTPS benar.
+app.set('trust proxy', 1);
+
+// CORS kunci: same-origin app tak terpengaruh; hanya lintas-situs yang disaring.
+// Selalu lolos: tanpa Origin (curl), localhost, *.ngrok-free.dev (fase uji).
+// Domain prod: ENV CORS_ORIGIN (koma-pisah).
+const CORS_TAMBAHAN = String(process.env.CORS_ORIGIN || '').split(',')
+  .map(s => s.trim()).filter(Boolean);
+app.use(cors({
+  origin: (asal, cb) => {
+    if (!asal) return cb(null, true);
+    let host = '';
+    try { host = new URL(asal).hostname.toLowerCase(); } catch { return cb(null, false); }
+    if (host === 'localhost' || host === '127.0.0.1' || host.endsWith('.ngrok-free.dev')) return cb(null, true);
+    if (CORS_TAMBAHAN.includes(asal)) return cb(null, true);
+    return cb(null, false);
+  },
+}));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../frontend/dist')));
 
@@ -27,7 +45,7 @@ app.use('/', require('./routes/gudang'));
 app.use('/', require('./routes/vendor'));
 app.use('/', require('./routes/opname'));
 
-// SPA fallback (prod port 3000): link langsung seperti /terima/:token harus
+// SPA fallback (prod port 3000): link langsung seperti /pesan/<slug>-<token> harus
 // dilayani index.html, bukan 404. Express 5: '/{*splat}'. Dilewati untuk /api.
 app.get('/{*splat}', (req, res, next) => {
   if (req.path.startsWith('/api')) return next();
@@ -86,6 +104,7 @@ function mulaiServer() {
         console.log(`Server jalan di http://localhost:${PORT}`);
       });
       scheduleRandomSampling();
+      mulaiPruneSesi();
     })
     .catch(err => {
       console.error('Gagal init data:', err.message);

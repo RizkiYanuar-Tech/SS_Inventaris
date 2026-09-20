@@ -100,7 +100,7 @@ async function cariOutletByToken(token) {
   return r.data || null;
 }
 
-function pesananKeJson(row, linkTerima = null, foto = {}) {
+function pesananKeJson(row, idKirim = null, foto = {}) {
   let items = row.items_json;
   if (typeof items === 'string') { try { items = JSON.parse(items || '[]'); } catch { items = []; } }
   if (!Array.isArray(items)) items = [];
@@ -114,7 +114,7 @@ function pesananKeJson(row, linkTerima = null, foto = {}) {
     items,
     ringkasan: row.ringkasan || '',
     dibuatPada: row.dibuat_pada || null,
-    linkTerima,
+    idKirim,
     fotoKirim: foto.fotoKirim || null,
     fotoTerima: foto.fotoTerima || null,
   };
@@ -146,8 +146,8 @@ async function mirrorPesanan(idPesan, status, catatan) {
   } catch (e) { console.warn('mirrorPesanan gagal:', e.message); }
 }
 
-async function catatTransaksi(id, nama, varian, kategori, jenis_transaksi, jumlah, satuan, hargaSatuan = null, idKirim = null, keterangan = null) {
-  const tulis = async (pakaiHarga, pakaiKirim, pakaiKet) => {
+async function catatTransaksi(id, nama, varian, kategori, jenis_transaksi, jumlah, satuan, hargaSatuan = null, idKirim = null, keterangan = null, idVendor = null) {
+  const tulis = async (pakaiHarga, pakaiKirim, pakaiKet, pakaiVendor) => {
     const baris = {
       id_barang: id,
       nama_barang: nama,
@@ -161,21 +161,24 @@ async function catatTransaksi(id, nama, varian, kategori, jenis_transaksi, jumla
     if (pakaiHarga && hargaSatuan != null && hargaSatuan !== '') baris.harga_satuan = Number(hargaSatuan);
     if (pakaiKirim && idKirim) baris.id_kirim = String(idKirim);
     if (pakaiKet && keterangan) baris.keterangan = String(keterangan);
+    if (pakaiVendor && idVendor != null && idVendor !== '') baris.id_vendor = Number(idVendor);
     return sb.from('transaksi').insert(baris).select('id_transaksi');
   };
-  const rantai = async (pakaiKet) => {
-    let r = await tulis(true, true, pakaiKet);
+  const rantai = async (pakaiKet, pakaiVendor) => {
+    let r = await tulis(true, true, pakaiKet, pakaiVendor);
     // Kolom belum migrasi → mundur bertahap (yang gagal tak tertulis, aman dicoba ulang):
-    // tanpa kirim, lalu tanpa harga, lalu tanpa keduanya.
-    if (r.error && /id_kirim/i.test(r.error.message || '')) r = await tulis(true, false, pakaiKet);
+    // tanpa kirim, lalu tanpa harga, lalu tanpa keduanya (flag vendor dipertahankan).
+    if (r.error && /id_kirim/i.test(r.error.message || '')) r = await tulis(true, false, pakaiKet, pakaiVendor);
     if (r.error && /harga/i.test(r.error.message || '')) {
-      r = await tulis(false, true, pakaiKet);
-      if (r.error) r = await tulis(false, false, pakaiKet);
+      r = await tulis(false, true, pakaiKet, pakaiVendor);
+      if (r.error) r = await tulis(false, false, pakaiKet, pakaiVendor);
     }
     return r;
   };
-  let r = await rantai(true);
-  if (r.error && /keterangan/i.test(r.error.message || '')) r = await rantai(false);
+  let r = await rantai(true, true);
+  let vendorOk = true;
+  if (r.error && /id_vendor/i.test(r.error.message || '')) { vendorOk = false; r = await rantai(true, false); }
+  if (r.error && /keterangan/i.test(r.error.message || '')) r = await rantai(false, vendorOk);
   if (r.error) throw new Error(r.error.message);
   return r.data[0].id_transaksi;
 }

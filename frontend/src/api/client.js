@@ -294,13 +294,13 @@ export async function lihatSuratJalan(idKirim) {
     return handleRes(res, 'Gagal mengambil surat jalan');
 }
 
-export async function lihatPengiriman(token) {
-    const res = await fetch(`${BASE_URL}/pengiriman/${encodeURIComponent(token)}/lihat`);
-    return handleRes(res, 'Link tidak valid');
+export async function lihatSurat(tokenOutlet, idKirim) {
+    const res = await fetch(`${BASE_URL}/pesan/${encodeURIComponent(tokenOutlet)}/surat/${encodeURIComponent(idKirim)}`);
+    return handleRes(res, 'Surat jalan tidak ditemukan');
 }
 
-export async function konfirmasiTerima(token, payload) {
-    const res = await fetch(`${BASE_URL}/pengiriman/${encodeURIComponent(token)}/konfirmasi`, {
+export async function konfirmasiSurat(tokenOutlet, idKirim, payload) {
+    const res = await fetch(`${BASE_URL}/pesan/${encodeURIComponent(tokenOutlet)}/surat/${encodeURIComponent(idKirim)}/konfirmasi`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(payload)

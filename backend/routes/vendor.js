@@ -11,6 +11,18 @@ const keJson = (o) => ({
   alamat: o.alamat || '',
 });
 
+// Satu-satunya format nomor: +62… (0… → +62…, 62… → +62…; kosong → null).
+function normalisasiNomor(nomor) {
+  let n = String(nomor || '').trim().replace(/[\s.\-()]/g, '');
+  if (!n) return null;
+  if (n.startsWith('+62')) return '+' + n.slice(1).replace(/\D/g, '');
+  n = n.replace(/\D/g, '');
+  if (!n) return null;
+  if (n.startsWith('0')) n = '62' + n.slice(1);
+  if (n.startsWith('62')) return '+' + n;
+  return '+' + n;
+}
+
 router.get('/api/vendor', wajibGudang, async (req, res) => {
   try {
     const r = await sb.from('vendor').select('*').order('nama_vendor', { ascending: true });
@@ -36,7 +48,7 @@ router.post('/api/vendor', wajibGudang, async (req, res) => {
     }
     const ins = await sb.from('vendor').insert({
       nama_vendor: nama,
-      nomor: String(req.body.nomor || '').trim() || null,
+      nomor: normalisasiNomor(req.body.nomor),
       alamat: String(req.body.alamat || '').trim(),
     }).select('id');
     if (ins.error) throw new Error(ins.error.message);
@@ -65,7 +77,7 @@ router.put('/api/vendor/:id', wajibGudang, async (req, res) => {
       }
       patch.nama_vendor = nama;
     }
-    if (req.body.nomor !== undefined) patch.nomor = String(req.body.nomor || '').trim() || null;
+    if (req.body.nomor !== undefined) patch.nomor = normalisasiNomor(req.body.nomor);
     if (req.body.alamat !== undefined) patch.alamat = String(req.body.alamat || '').trim();
     if (!Object.keys(patch).length) return res.json({ sukses: true, pesan: 'Tidak ada perubahan.' });
     const up = await sb.from('vendor').update(patch).eq('id', id).select('id');

@@ -67,7 +67,7 @@ export default function TransaksiTable({ items }) {
                                 </div>
                                 <div className='text-end'>
                                     <span className='d-block text-muted small mb-1'>Kuantitas</span>
-                                    <span className='fw-bold fs-5'>{item.jumlah}</span>
+                                    <span className='fw-bold fs-5'>{item.jumlah}{item.satuan ? ` ${item.satuan}` : ''}</span>
                                 </div>
                             </div>
                         </Card.Body>

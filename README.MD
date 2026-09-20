@@ -33,7 +33,7 @@ Sistem secara otomatis akan menghasilkan output:
 - Catatan: tiap edit `frontend/src/` langsung tampil di HP tanpa `npm run build`. `build` hanya wajib untuk `ngrok http 3000` (serve `frontend/dist` via Express).
 
 ## Workflow Singkat
-- Pesan: outlet buka link permanen `/pesan/<slug>-<token>` (2 tab: Pesan Baru | Riwayat) → keranjang (tanpa stock) → submit → status BARU + batch masuk & rencana kirim otomatis (slot Senin & Kamis, cutoff 15:00 WIB).
-- Kirim: gudang approve per item di hub `/pesanan` (Penuhi / Tolak + keterangan manual) → record pengiriman TERBENTUK OTOMATIS + stock berkurang 1x (tanpa tombol buat-manual) → klik manual `Tandai Dikirim` → link berita acara `/terima/:token` valid + dikirim via WA. Batal kirim hanya sebelum outlet konfirmasi (link lama mati, alasan wajib).
-- Terima: outlet ceklis per baris yang sesuai (baris bermasalah jangan diceklis + wajib jumlah terima + keterangan) + nama penerima → 1 tombol `Kirim Laporan Terima` → terkunci (DITERIMA/DITERIMA SEBAGIAN = berita acara barang masuk). Gudang terima ringkasan surat jalan read-only.
+- Pesan: outlet buka link permanen `/pesan/<slug>-<token>` (login dulu; 3 tab: Pesan Baru | Riwayat | Surat Jalan) → keranjang (tanpa stock) → submit → status BARU + batch masuk & rencana kirim otomatis (slot Senin & Kamis, cutoff 15:00 WIB).
+- Kirim: gudang approve per item di hub `/pesanan` (Penuhi / Tolak + keterangan manual) → record pengiriman TERBENTUK OTOMATIS + stock berkurang 1x (tanpa tombol buat-manual) → klik manual `Tandai Dikirim` → DIKIRIM, surat muncul di Tab Surat Jalan outlet (tanpa link/WA). Batal kirim hanya sebelum outlet konfirmasi (alasan wajib).
+- Terima: outlet login → Tab Surat Jalan → ceklis per baris yang sesuai (baris bermasalah jangan diceklis + wajib jumlah terima + keterangan) + nama penerima → 1 tombol `Kirim Laporan Terima` → terkunci (DITERIMA/DITERIMA SEBAGIAN = berita acara barang masuk). Lupa password → hubungi gudang (reset via Kelola Akun). Gudang terima ringkasan surat jalan read-only.
 - Detail lengkap: lihat `PRD.MD`.

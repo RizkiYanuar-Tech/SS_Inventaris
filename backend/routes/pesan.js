@@ -2,13 +2,14 @@ const express = require('express');
 const crypto = require('crypto');
 const router = express.Router();
 const { sb, nowIso } = require('../../db');
-const { wajibGudang, wajibOutlet, sesiOutlet, UMUR_SESI_OUTLET_MS, namaCookieOutlet, hashKataSandi, cekKataSandi, kenaRate } = require('../lib/auth');
+const { wajibGudang, wajibOutlet, sesiOutlet, UMUR_SESI_OUTLET_MS, namaCookieOutlet, hashKataSandi, cekKataSandi, kenaRate, atributSecure } = require('../lib/auth');
 const { jakartaParts, hitungSlot, formatWaktuBukti, pesanDibuka, PESAN_TUTUP } = require('../lib/waktu');
-const { buatRingkasan, tambahRiwayat } = require('../lib/ringkas');
+const { buatRingkasan, tambahRiwayat, buatRingkasanKirim, buatAlasan } = require('../lib/ringkas');
 const { kanonikSatuan } = require('../lib/konversi');
 const {
   cariOutletByToken, buatIdPesan, pesananKeJson, cariPesanan, simpanPesanan,
-  tulisNotifikasi, buatPengiriman,
+  tulisNotifikasi, buatPengiriman, cariPengiriman, pengirimanKeJson, simpanPengiriman,
+  mirrorPesanan,
 } = require('../lib/data');
 
 // Gudang: daftar semua pesanan, terbaru-di-atas
@@ -46,17 +47,16 @@ router.get('/api/pesan/:token', wajibOutlet, async (req, res) => {
 
     const { batchLabel, kirimLabel } = hitungSlot(new Date());
 
-    // Link berita acara lahir saat Tandai Dikirim (sebelumnya null = "belum dikirim").
-    // Token tetap ada pasca-lapor agar Tab Surat Jalan bisa tampilkan arsip terkunci.
+    // Surat jalan per kiriman (idKirim; tanpa link /terima — Tab Surat Jalan di balik sesi login).
     // Foto kiriman ikut agar tiket outlet bisa tampilkan thumbnail ala Lacak.
     let infoKirim = {};
     try {
-      const dk = await sb.from('pengiriman').select('id_pesan,token,foto_kirim,foto_terima');
+      const dk = await sb.from('pengiriman').select('id_pesan,id_kirim,foto_kirim,foto_terima');
       if (dk.error) throw new Error(dk.error.message);
       for (const x of dk.data) {
         const id = String(x.id_pesan || '').trim();
-        if ((x.token || '').trim() && id) infoKirim[id] = {
-          link: `/terima/${String(x.token).trim()}`,
+        if (String(x.id_kirim || '').trim() && id) infoKirim[id] = {
+          idKirim: String(x.id_kirim).trim(),
           fotoKirim: x.foto_kirim || null,
           fotoTerima: x.foto_terima || null,
         };
@@ -68,7 +68,7 @@ router.get('/api/pesan/:token', wajibOutlet, async (req, res) => {
     const milik = sp.data.map(x => {
       const id = String(x.id_pesan || '').trim();
       const info = infoKirim[id] || {};
-      return pesananKeJson(x, info.link || null, info);
+      return pesananKeJson(x, info.idKirim || null, info);
     });
     const dibuka = pesanDibuka(new Date());
 
@@ -273,12 +273,96 @@ router.post('/api/pesanan/:id/keputusan', wajibGudang, async (req, res) => {
   }
 });
 
+// ---- Surat jalan outlet (wajib sesi login; pengganti /terima link-only yang dicabut) ----
+async function suratMilik(tokenOutlet, idKirim) {
+  const kirim = await cariPengiriman(String(idKirim || '').trim());
+  if (!kirim) return { err: 404, pesan: 'ID Kirim tidak ditemukan.' };
+  const idPesan = String(kirim.id_pesan || '').trim();
+  const p = idPesan && idPesan !== '-' ? await cariPesanan(idPesan) : null;
+  if (!p || String(p.token_outlet || '').trim() !== String(tokenOutlet || '').trim()) {
+    return { err: 404, pesan: 'Surat jalan tidak ditemukan untuk akun ini.' };
+  }
+  return { kirim };
+}
+
+// Baca 1 surat milik token ini (termasuk arsip terkunci pasca-lapor).
+router.get('/api/pesan/:token/surat/:idKirim', wajibOutlet, async (req, res) => {
+  try {
+    const r = await suratMilik(req.params.token, req.params.idKirim);
+    if (r.err) return res.status(r.err).json({ error: r.pesan });
+    const data = pengirimanKeJson(r.kirim, true);
+    data.sudahDikonfirmasi = ['DITERIMA', 'DITERIMA SEBAGIAN'].includes(r.kirim.status);
+    res.json(data);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Lapor terima: hanya dari DIKIRIM, nama wajib, baris tanpa ceklis wajib jumlah + keterangan.
+router.post('/api/pesan/:token/surat/:idKirim/konfirmasi', wajibOutlet, async (req, res) => {
+  try {
+    const r = await suratMilik(req.params.token, req.params.idKirim);
+    if (r.err) return res.status(r.err).json({ sukses: false, pesan: r.pesan });
+    const row = r.kirim;
+    const { namaPenerima, items, fotoTerima } = req.body || {};
+    if (!namaPenerima || !String(namaPenerima).trim()) {
+      return res.status(400).json({ sukses: false, pesan: 'Nama penerima wajib diisi.' });
+    }
+    if (row.status !== 'DIKIRIM') {
+      return res.status(409).json({ sukses: false, pesan: 'Laporan ini sudah dikirim sebelumnya (terkunci).' });
+    }
+    let dikirim = row.items_json;
+    if (typeof dikirim === 'string') { try { dikirim = JSON.parse(dikirim || '[]'); } catch { dikirim = []; } }
+    if (!Array.isArray(dikirim)) dikirim = [];
+    if (!Array.isArray(items) || items.length !== dikirim.length) {
+      return res.status(400).json({ sukses: false, pesan: 'Data item tidak lengkap.' });
+    }
+    let sebagian = false;
+    const hasil = dikirim.map((asli, i) => {
+      const lap = items[i] || {};
+      const ceklis = lap.ceklis === true;
+      const jumlahTerima = lap.jumlahTerima === '' || lap.jumlahTerima == null ? null : Number(lap.jumlahTerima);
+      const keterangan = String(lap.keterangan || '').trim();
+      if (ceklis) {
+        if (jumlahTerima != null && jumlahTerima !== Number(asli.jumlahKirim)) sebagian = true;
+        return { ...asli, ceklis: true, jumlahTerima: jumlahTerima ?? Number(asli.jumlahKirim), keterangan };
+      }
+      if (jumlahTerima == null || Number.isNaN(jumlahTerima)) throw new Error(`Item "${asli.nama}": isi jumlah terima atau ceklis jika sesuai.`);
+      if (!keterangan) throw new Error(`Item "${asli.nama}": keterangan wajib karena tidak diceklis.`);
+      sebagian = true;
+      return { ...asli, ceklis: false, jumlahTerima, keterangan };
+    });
+    const status = sebagian ? 'DITERIMA SEBAGIAN' : 'DITERIMA';
+    row.items_json = hasil;
+    row.ringkasan = buatRingkasanKirim(hasil.map(it => ({
+      nama: it.nama,
+      qtyKirim: `${it.jumlahKirim} -> ${it.jumlahTerima}`,
+    })));
+    row.alasan = buatAlasan(hasil);
+    row.nama_penerima = String(namaPenerima).trim();
+    row.tanggal_terima = formatWaktuBukti();
+    if (fotoTerima !== undefined) row.foto_terima = String(fotoTerima || '').trim() || null;
+    row.status = status;
+    row.riwayat_status = tambahRiwayat(row.riwayat_status, `Dilaporkan outlet (${status}) oleh ${String(namaPenerima).trim()}${row.foto_terima ? ' + foto' : ''}`);
+    await simpanPengiriman(row);
+    await mirrorPesanan(row.id_pesan, status, `Dilaporkan outlet (${status})`);
+    console.log(`*LAPORAN TERIMA ${status}*\nKirim: ${row.id_kirim}${row.id_pesan ? ` (pesan ${row.id_pesan})` : ''}\nOutlet: ${row.outlet}\n${row.ringkasan || ''}${(row.alasan || '').trim() ? `\nAlasan: ${String(row.alasan).trim()}` : ''}\nPenerima: ${String(namaPenerima).trim()}`);
+    await tulisNotifikasi(`LAPORAN TERIMA ${status} — ${row.id_kirim}`,
+      `${row.outlet}: ${row.ringkasan || ''} (oleh ${String(namaPenerima).trim()})`, row.id_kirim);
+    res.json({ sukses: true, status, pesan: status === 'DITERIMA' ? 'Terima kasih! Laporan diterima penuh.' : 'Laporan diterima sebagian, gudang akan menindaklanjuti kekurangan.' });
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ sukses: false, pesan: err.message });
+  }
+});
+
 // ---- Login outlet (username + password; username pre-set gudang, password self-set outlet) ----
 const SALAH_OUTLET = 'Username atau password salah.';
-function sesiOutletBaru(tokenOutlet, res) {
+function sesiOutletBaru(tokenOutlet, req, res) {
   const tok = crypto.randomBytes(32).toString('hex');
   sesiOutlet.set(tok, { tokenOutlet: String(tokenOutlet).trim(), exp: Date.now() + UMUR_SESI_OUTLET_MS });
-  res.setHeader('Set-Cookie', `${namaCookieOutlet(tokenOutlet)}=${tok}; HttpOnly; Path=/; Max-Age=86400; SameSite=Lax`);
+  res.setHeader('Set-Cookie', `${namaCookieOutlet(tokenOutlet)}=${tok}; HttpOnly; Path=/; Max-Age=86400; SameSite=Lax${atributSecure(req)}`);
 }
 
 // Masuk: publik + rate-limit 10/mnt per slug+IP. NULL password + username cocok -> 401 {buatPertama:true}.
@@ -303,7 +387,7 @@ router.post('/api/pesan/:token/masuk', async (req, res) => {
     if (!cekKataSandi(password, outlet.password_outlet)) {
       return res.status(401).json({ sukses: false, pesan: SALAH_OUTLET });
     }
-    sesiOutletBaru(req.params.token, res);
+    sesiOutletBaru(req.params.token, req, res);
     res.json({ sukses: true, pesan: `Masuk sebagai ${outlet.nama_outlet}.` });
   } catch (err) {
     console.error(err);
@@ -331,7 +415,7 @@ router.post('/api/pesan/:token/password-awal', async (req, res) => {
     }
     const up = await sb.from('outlet').update({ password_outlet: hashKataSandi(password) }).eq('token', String(req.params.token).trim()).select('slug');
     if (up.error) throw new Error(up.error.message);
-    sesiOutletBaru(req.params.token, res);
+    sesiOutletBaru(req.params.token, req, res);
     res.json({ sukses: true, pesan: 'Password dibuat. Selamat datang!' });
   } catch (err) {
     console.error(err);

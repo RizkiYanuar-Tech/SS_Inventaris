@@ -6,21 +6,23 @@
 > via `/input` (form barang baru, stock ≥ 5, catat ID: BRG-A, BRG-B).
 > Catatan: WA/Fonnte DICABUT 2026-09-14 (jejak peristiwa = `console.log` + lonceng web);
 > scan/kamera DICABUT 2026-09-14 (input full manual); Tab Buat + `/kirim` DICABUT 2026-09-14;
-> reset-link DICABUT 2026-09-15 (token permanen, ganti password cukup).
+> reset-link DICABUT 2026-09-15 (token permanen, ganti password cukup);
+> route `/terima/<token>` link-only + Salin Link/Kirim WA surat jalan DICABUT total 2026-09-20
+> (surat jalan hanya Tab Surat Jalan di balik login outlet; endpoint uuid mati → 404).
 
 ## List Testing (U1–U48)
 
 ### Prasyarat
-- [ Sukses ] **U1.** Boot tanpa error (`Supabase terhubung`); BottomNav 5 item tampil di semua halaman gudang (termasuk `/pesanan`); halaman outlet (`/pesan/*`, `/terima/*`), `/gudang-masuk`, `/surat-jalan/*` tanpa BottomNav. `/` redirect ke `/homepage`.
+- [ Sukses ] **U1.** Boot tanpa error (`Supabase terhubung`); BottomNav 5 item tampil di semua halaman gudang (termasuk `/pesanan`); halaman outlet (`/pesan/*`), `/gudang-masuk`, `/surat-jalan/*` tanpa BottomNav. `/` redirect ke `/homepage`.
 
 ### Login gudang + gate penuh
 - [ ] **U38.** Login gudang: tanpa sesi → buka `/`, `/homepage`, `/inventory`, `/history`, `/input`, `/pesanan` dilempar ke `/gudang-masuk`; salah → 401 generik; 10× salah/mnt → 429; benar → masuk + sesi opaque 24 jam (restart server = logout ulang); Keluar (homepage, outline-danger + confirm) → balik login; Ganti password (ketik 2×, min 4, wajib sesi) → baru berlaku, lama mati. `GUDANG_GATE=off` → semua terbuka (kill-switch).
-- [ ] **U39.** Gate penuh: `GET /api/barang`, `POST /api/pesanan/:id/keputusan`, `GET /api/pengiriman` tanpa sesi → 401; jalur outlet (`GET/POST /api/pesan/:token`, `GET /api/pengiriman/:token`, POST konfirmasi) tetap publik; login → `/homepage` (atau deep-link tujuan, cth `/input` → login → kembali `/input`); BottomNav skip-fetch badge saat logout (console bersih).
+- [ ] **U39.** Gate penuh: `GET /api/barang`, `POST /api/pesanan/:id/keputusan`, `GET /api/pengiriman` tanpa sesi → 401; jalur outlet `/pesan/*` (+ `/surat`) wajib sesi outlet (tanpa sesi → 401 + form login); endpoint uuid link-only (`GET /api/pengiriman/:token/lihat`, POST konfirmasi) dan route `/terima/*` sudah mati → 404; login → `/homepage` (atau deep-link tujuan, cth `/input` → login → kembali `/input`); BottomNav skip-fetch badge saat logout (console bersih).
 
 ### Login outlet (link permanen)
 - [ ] **U43.** Buka link permanen `/pesan/<slug>-<token8>` tanpa sesi → form username+password inline (bukan isi katalog); username NULL (belum di-set gudang) → 403 minta ke gudang; salah → 401 generik (tak bocorkan slug valid); benar → masuk + cookie sesi HttpOnly 24 jam; tutup tab → login ulang (sessionStorage); 10× salah/mnt per slug+IP → 429.
 - [ ] **U44.** Klaim pertama: `password_outlet` NULL + link valid + username cocok → form "Buat password pertama" (ketik 2×, min 4, sekali saja via `POST /api/pesan/:token/password-awal`) → auto-masuk; setelah terisi → form "Masukkan password" biasa; coba panggil ulang → 409 terkunci.
-- [ ] **U45.** Outlet lupa password → gudang reset via Tab Lainnya hub (Kelola Akun: ketik 2×, hash scrypt di server) → password baru berlaku; outlet bisa ganti-sendiri via ikon Sandi header (modal, wajib sesi outlet). Reset-link lama (`POST /api/outlet/:slug/reset-link`) sudah mati → 404.
+- [ ] **U45.** Outlet lupa password → teks di form login (`Lupa password? Hubungi gudang via WA/telepon — reset via Kelola Akun`) → gudang reset via Tab Lainnya hub (Kelola Akun: ketik 2×, hash scrypt di server) → password baru berlaku; outlet bisa ganti-sendiri via ikon Sandi header (modal, wajib sesi outlet). Reset-link lama (`POST /api/outlet/:slug/reset-link`) sudah mati → 404.
 
 ### Outlet pesan (3 tab: Pesan | Riwayat | Surat Jalan + Keranjang)
 - [ Sukses ] **U2.** Buka 2 link pesan (sesudah login) → header nota outlet benar + info jadwal batch/kirim + katalog nama • varian • satuan (tanpa angka stock); tab kategori horizontal sticky + search flat lintas-kategori.
@@ -44,15 +46,15 @@
 - [ Sukses ] **U11.** Tombol `Verifikasi & Tandai` di kartu SIAP KIRIM → halaman `/input` mode verifikasi (tap kartu per line by index + 1 foto paket, tanpa ketik ID/kamera).
 - [ Sukses ] **U12.** Ceklis bisa tap ulang untuk batal; tanpa foto → tombol mati sampai pilih file / centang `Lanjut tanpa foto` (gagal upload tak blokir Tandai).
 - [ Sukses ] **U13.** Tombol Tandai mati sebelum N/N + foto; lengkap → tercatat `ceklis` per line + `foto_kirim` (bucket `bukti-kirim`).
-- [ ] **U14.** Lengkap → Tandai (`POST /api/pengiriman/:id/kirim`) → DIKIRIM + token terima lahir + tombol `Salin Link` di kartu (hub) + tombol `Kirim WA` (HP, `wa.me`, milik halaman verifikasi); link `/terima/<token>` valid hanya sesudah ini ("belum dikirim" sebelumnya); Lacak tampil jejak `Diverifikasi ceklis` + foto kirim; halaman terima tampil foto gudang; lapor + foto balik → foto terima tampil di Lacak. Hub TIDAK ada tombol Buka/Kirim WA (dicabut 2026-09-13, tersisa Salin Link + Batalkan + Lacak + Print).
+- [ ] **U14.** Lengkap → Tandai (`POST /api/pengiriman/:id/kirim`) → DIKIRIM tanpa token/link/WA (layar sukses: outlet cek Tab Surat Jalan; tanpa Salin Link); kartu DIKIRIM tanpa Salin Link (tersisa Batalkan + Lacak + Print); Lacak tampil jejak `Diverifikasi ceklis` + foto kirim; foto gudang tampil di Tab Surat Jalan outlet; lapor + foto balik → foto terima tampil di Lacak.
 
-### Terima outlet (Tab Surat Jalan + fallback)
-- [ ] **U15.** Surat jalan via Tab Surat Jalan di link pemesanan (badge = DIKIRIM perlu lapor; perlu-lapor di atas + arsip terkunci di bawah, pagination 5/halaman; expand inline per kartu) + fallback `/terima/<token>` di Incognito (link-only, tanpa login); tiket: rel status + langkah-berikutnya + alur Pesan·Siapkan·Kirim·Terima + rincian per barang collapse + thumbnail foto kirim/terima (klik = tab baru); tanpa nama / baris-tak-diceklis tanpa jumlah+keterangan → merah; 1 tombol `Kirim Laporan Terima`. ID-kembar: ceklis 1 line tidak menular (by index).
+### Terima outlet (Tab Surat Jalan, wajib login — tanpa fallback link)
+- [ ] **U15.** Surat jalan via Tab Surat Jalan di link pemesanan (wajib login; badge = DIKIRIM perlu lapor; perlu-lapor di atas + arsip terkunci di bawah, pagination 5/halaman; expand inline per kartu); tiket: rel status + langkah-berikutnya + alur Pesan·Siapkan·Kirim·Terima + rincian per barang collapse + thumbnail foto kirim/terima (klik = tab baru); tanpa nama / baris-tak-diceklis tanpa jumlah+keterangan → merah; 1 tombol `Kirim Laporan Terima`. ID-kembar: ceklis 1 line tidak menular (by index). Tanpa sesi → 401 + form login (bukan isi).
 - [ ] **U16.** Ceklis semua + jumlah terima = kirim + nama penerima → `DITERIMA`, badge per item hijau; refresh tetap terkunci (tolak submit ganda); gudang read-only (tanpa tombol konfirmasi terima).
 - [ ] **U17.** 1 baris bermasalah (kurang/lebih/varian keliru/tak datang + jumlah terima + keterangan) → `DITERIMA SEBAGIAN` otomatis (bukan pilihan manual); Tab Riwayat filter Diterima berisi keduanya; Batal hanya untuk DITOLAK.
 
 ### Batal kirim + mirror
-- [ ] **U18.** Batalkan Pengiriman (tombol sekundar, hanya pre-lapor) + alasan wajib → kembali `DISETUJUI`/`DISETUJUI SEBAGIAN` semula + link terima lama mati (dibuka = "dibatalkan, tunggu link baru") + alasan di `RiwayatStatus`, stock tak diutak-atik; tanpa alasan → merah; pasca-DITERIMA/SEBAGIAN → 409 kunci mati.
+- [ ] **U18.** Batalkan Pengiriman (tombol sekundar, hanya pre-lapor) + alasan wajib → kembali `DISETUJUI`/`DISETUJUI SEBAGIAN` semula (tanpa link lama) + alasan di `RiwayatStatus`, stock tak diutak-atik; tanpa alasan → merah; pasca-DITERIMA/SEBAGIAN → 409 kunci mati.
 - [ ] **U19.** Cek mirror: Tandai → pesanan DIKIRIM + tombol `Isi/Lihat Surat Jalan` di Riwayat lompat ke Tab Surat Jalan; terima → DITERIMA/SEBAGIAN terminal + Tab Pesan Baru aktif lagi. Refresh/duplikat submit tidak dobel kurang stock.
 
 ### Kelola akun + Lacak + surat jalan cetak + lonceng
@@ -91,12 +93,12 @@
 -----
 ## Expected Output (E1–E48, peta 1:1 ke U)
 
-- [ ] **E1.** `Terhubung` + `Supabase terhubung`; nav 5 item ada di gudang, tidak ada di outlet/terima/gudang-masuk/surat-jalan; `/` → `/homepage`.
+- [ ] **E1.** `Terhubung` + `Supabase terhubung`; nav 5 item ada di gudang, tidak ada di outlet/gudang-masuk/surat-jalan; `/` → `/homepage`.
 - [ ] **E38.** Redirect login bekerja; pesan error persis (401 generik, 429 rate-limit); sesi 24 jam; password lama mati setelah ganti; `GUDANG_GATE=off` terbuka semua.
-- [ ] **E39.** Tanpa sesi gudang semua endpoint gudang 401; jalur outlet tetap publik; deep-link kembali sesudah login; BottomNav tak fetch badge saat logout.
+- [ ] **E39.** Tanpa sesi gudang semua endpoint gudang 401; jalur outlet `/pesan/*` wajib sesi (tanpa sesi 401 + form login); endpoint uuid + route `/terima/*` 404; deep-link kembali sesudah login; BottomNav tak fetch badge saat logout.
 - [ ] **E43.** Tanpa sesi → form login (bukan katalog); username NULL → 403; salah → 401 generik; benar → masuk 24 jam; tutup tab → login ulang; 10×/mnt → 429.
 - [ ] **E44.** Klaim pertama sekali + auto-masuk, lalu terkunci (panggil ulang 409); min 4 + konfirmasi sama.
-- [ ] **E45.** Reset gudang + ganti-sendiri outlet berlaku; endpoint reset-link lama 404.
+- [ ] **E45.** Teks lupa-password tampil di form login; reset gudang + ganti-sendiri outlet berlaku; endpoint reset-link lama 404.
 - [ ] **E2.** Nama outlet + `Batch masuk/Rencana kirim` + daftar `nama • varian • satuan` (tanpa stock) + tab kategori + search.
 - [ ] **E3.** Kolom terisi `200`, ringkasan `x200`; tab 🛒 badge = macam; tidak ada pembatasan tap.
 - [ ] **E4.** Popup `Pesanan PSN-... tercatat (BARU)...`; Riwayat badge `(1)`; log `PESANAN BARU` + ringkasan + batch/kirim + lonceng ≤30 dtk.
@@ -112,11 +114,11 @@
 - [ ] **E11.** Judul `Verifikasi Kiriman` + `n/N diceklis` + input foto paket, tanpa ketik ID/kamera.
 - [ ] **E12.** Tap ulang melepas ceklis; tanpa file & tanpa centang → tombol nonaktif; gagal upload tak blokir.
 - [ ] **E13.** Tombol nonaktif `Ceklis semua dulu (n/N)`; badge `✓ masuk paket`.
-- [ ] **E14.** DIKIRIM + token lahir + tombol Salin Link di kartu; link `/terima/<token>` valid; Lacak ada `Diverifikasi ceklis` + thumbnail; halaman terima tampil foto gudang.
+- [ ] **E14.** DIKIRIM tanpa token/link/WA + tanpa Salin Link di kartu maupun layar sukses; Lacak ada `Diverifikasi ceklis` + thumbnail; Tab Surat Jalan tampil foto gudang.
 - [ ] **E15.** Merah `Nama penerima wajib diisi.` / `... keterangan wajib karena tidak diceklis.`; 1 tombol `Kirim Laporan Terima`.
 - [ ] **E16.** Alert hijau `DITERIMA`; tiap badge hijau `Sesuai` + `Dikirim X → diterima X`; refresh terkunci.
 - [ ] **E17.** Kuning `DITERIMA SEBAGIAN`; hanya baris bermasalah badge kuning; keduanya di filter Diterima; Batal cuma DITOLAK.
-- [ ] **E18.** Status kembali asal + pesanan asal; link lama mati; merah tanpa alasan; 409 pasca-terima.
+- [ ] **E18.** Status kembali asal + pesanan asal; tanpa link lama; merah tanpa alasan; 409 pasca-terima.
 - [ ] **E19.** Riwayat: ungu DIKIRIM + `Isi Surat Jalan` → hijau/kuning + tombol hilang; Pesan Baru aktif lagi; tanpa dobel stock.
 - [ ] **E20.** Kelola Akun: username terkunci permanen; password baru berlaku; token permanen (tanpa reset-link).
 - [ Sukses ] **E21.** List tampil langsung (20 awal) terbaru-di-atas; filter tepat; klik kartu buka detail (tanggal, alasan, item, riwayat) + klik lagi tutup; `Muat lagi (N tersisa)` muncul bila >20; ganti filter reset ke 20 awal.

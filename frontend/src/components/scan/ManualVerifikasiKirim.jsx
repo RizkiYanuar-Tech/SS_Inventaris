@@ -39,11 +39,6 @@ export default function ManualVerifikasiKirim({ idKirim }) {
         setCeklis(c => ({ ...c, [i]: !c[i] }));
     }
 
-    function salinTeks(teks) {
-        navigator.clipboard?.writeText(teks).catch(() => {});
-        setModal({ show: true, sukses: true, pesan: 'Disalin.' });
-    }
-
     async function selesaikan() {
         setBusy(true);
         try {
@@ -55,7 +50,7 @@ export default function ManualVerifikasiKirim({ idKirim }) {
                 if (!fotoUrl) fotoNote = ' (foto gagal diupload, lanjut tanpa foto)';
             }
             const res = await tandaiDikirim(idKirim, lines.map((_, i) => ({ index: i, cara: 'ceklis' })), fotoUrl);
-            setHasil({ token: res.token });
+            setHasil({ ok: true });
             setModal({ show: true, sukses: true, pesan: res.pesan + fotoNote });
         } catch (e) {
             setModal({ show: true, sukses: false, pesan: e.message });
@@ -71,16 +66,9 @@ export default function ManualVerifikasiKirim({ idKirim }) {
     if (!kirim) return <p className='text-center py-5 text-muted'>Memuat kiriman...</p>;
 
     if (hasil) {
-        const url = `${window.location.origin}/terima/${hasil.token}`;
         return (
             <Container className='py-4' style={{ maxWidth: '480px' }}>
-                <Alert variant='success' className='text-center'>DIKIRIM — link berita acara aktif.</Alert>
-                <p className='small text-break bg-light p-2 rounded'>{url}</p>
-                <div className='d-flex gap-2 mb-2'>
-                    <Button variant='outline-primary' className='flex-fill' onClick={() => salinTeks(url)}>Salin Link</Button>
-                    <a className='btn btn-success flex-fill' target='_blank' rel='noreferrer'
-                        href={`https://wa.me/?text=${encodeURIComponent(`Paket ${idKirim} dikirim. Cek & lapor terima: ${url}`)}`}>Kirim WA</a>
-                </div>
+                <Alert variant='success' className='text-center'>DIKIRIM — outlet cek Tab Surat Jalan di link pesanannya.</Alert>
                 <Button variant='secondary' className='w-100' onClick={() => navigate('/pesanan')}>Kembali ke Pesanan</Button>
                 <ResultModal show={modal.show} sukses={modal.sukses} pesan={modal.pesan} onClose={() => setModal(m => ({ ...m, show: false }))} />
             </Container>

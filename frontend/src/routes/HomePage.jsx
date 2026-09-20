@@ -274,7 +274,7 @@ export default function HomePage(){
                                                     </Col>
                                                     <Col xs={6} md={4}>
                                                         <Form.Control size='sm' value={vEdit.nomor || ''}
-                                                            onChange={e => setVEdit(p => ({ ...p, nomor: e.target.value }))} placeholder='Kontak' aria-label='Kontak vendor' />
+                                                            onChange={e => setVEdit(p => ({ ...p, nomor: e.target.value }))} placeholder='+62812…' aria-label='Kontak vendor' />
                                                     </Col>
                                                     <Col xs={6} md={4}>
                                                         <Form.Control size='sm' value={vEdit.alamat || ''}
@@ -326,7 +326,7 @@ export default function HomePage(){
                                 </Col>
                                 <Col xs={6} md={3}>
                                     <Form.Label className='text-muted small mb-1'>Kontak</Form.Label>
-                                    <Form.Control size='sm' value={vNomor} onChange={e => setVNomor(e.target.value)} placeholder='Kontak' />
+                                    <Form.Control size='sm' value={vNomor} onChange={e => setVNomor(e.target.value)} placeholder='+62812…' />
                                 </Col>
                                 <Col xs={6} md={4}>
                                     <Form.Label className='text-muted small mb-1'>Alamat</Form.Label>

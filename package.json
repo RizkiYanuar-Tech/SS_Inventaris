@@ -4,7 +4,9 @@
   "description": "Pengelolaan inventory barang sering kali rentan terhadap masalah operasional dan human error, seperti staf lupa mencatat barang saat datang, pendataan ganda, hingga kehabisan stok secara tiba-tiba karena tidak adanya pemantauan. Sistem barcode tradisional juga kerap membutuhkan alat pemindai khusus yang menambahkan biaya pengadaan.",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "npm --prefix frontend install && npm --prefix frontend run build",
+    "start": "node server.js"
   },
   "keywords": [],
   "author": "",

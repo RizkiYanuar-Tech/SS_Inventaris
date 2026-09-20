@@ -22,7 +22,7 @@ function BadgeStatus({ status }) {
 }
 
 // Form putus per item untuk 1 kartu BARU.
-// State keyed by POSISI (index), bukan id — ID bisa kembar ('-', duplikat migrasi).
+// State keyd by POSISI (index), bukan id — ID bisa kembar ('-', duplikat migrasi).
 function PutusForm({ pesanan, onSelesai }) {
     const [mode, setMode] = useState({}); // {index: 'PENUHI'|'TOLAK'}
     const [qty, setQty] = useState({}); // {index: qtyKirim} kosong = penuh
@@ -404,12 +404,6 @@ export default function DaftarPengirimanPage() {
                                             {k.status === 'DIKIRIM' && (
                                                 <Button size='sm' variant='outline-danger' onClick={() => setAksi({ mode: 'batal', id: k.idKirim })}>
                                                     Batalkan
-                                                </Button>
-                                            )}
-                                            {k.status === 'DIKIRIM' && k.token && (
-                                                <Button size='sm' variant='outline-primary'
-                                                    onClick={() => salinTeks(`${window.location.origin}/terima/${k.token}`, 'Link surat jalan disalin.')}>
-                                                    Salin Link
                                                 </Button>
                                             )}
                                             <Button size='sm' variant='outline-secondary' onClick={() => { setLacakId(k.idKirim); setTab('lacak'); }}>

@@ -49,6 +49,68 @@
   .surat-jalan { max-width: none; }
 }
 
+/* Kartu input barang-sudah-ada: kertas ledger + angka hero + cap stempel. */
+.gd-input { border-radius: 14px; background: #F6F3EA; overflow: hidden; }
+.gd-input-head { padding: 1rem 1rem .75rem; border-bottom: 1px solid #E3DCC8; }
+.gd-input-eyebrow {
+  display: flex; justify-content: space-between; align-items: center; gap: .5rem;
+  font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+  color: #6b6a5e; margin-bottom: .25rem;
+}
+.gd-input-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0; }
+.gd-input-nama { font-weight: 800; font-size: 1.05rem; line-height: 1.25; color: #22302A; }
+.gd-input-varian { font-weight: 400; color: #6b6a5e; }
+.gd-input-stockrow {
+  display: flex; justify-content: space-between; align-items: baseline; gap: .5rem;
+  margin-top: .5rem;
+}
+.gd-input-stocklabel {
+  font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+  color: #6b6a5e;
+}
+.gd-input-stock {
+  font-weight: 800; font-size: 1.5rem; line-height: 1; color: #22302A;
+  font-variant-numeric: tabular-nums;
+}
+.gd-input-stock small { font-size: .85rem; font-weight: 600; color: #6b6a5e; }
+.gd-input-avg { font-size: 13px; font-weight: 600; color: #4a4940; margin-top: .15rem; }
+.gd-input-zona { padding: .85rem 1rem; border-bottom: 1px solid #E3DCC8; }
+.gd-input-label {
+  display: block; font-size: 11px; font-weight: 700; letter-spacing: .12em;
+  text-transform: uppercase; color: #6b6a5e; margin-bottom: .4rem;
+}
+.gd-input-stepper { display: flex; gap: .5rem; align-items: stretch; }
+.gd-input-step {
+  flex: 0 0 52px; display: flex; align-items: center; justify-content: center;
+  border: 1px solid #E3DCC8 !important; background: #fff !important; border-radius: 10px;
+  color: #22302A;
+}
+.gd-input-step:disabled { opacity: .4; }
+.gd-input-stepper .form-control {
+  text-align: center; font-weight: 800; font-size: 1.1rem; font-variant-numeric: tabular-nums;
+  border: 1px solid #E3DCC8; border-radius: 10px; background: #fff; color: #22302A; min-width: 0;
+}
+.gd-input-stepper .form-control:focus-visible,
+.gd-input-zona .form-control:focus-visible,
+.gd-input-zona .form-select:focus-visible { outline: 2px solid #147A4A; outline-offset: 1px; }
+.gd-input-avgbaru { text-align: center; font-weight: 600; font-size: 13px; color: #22302A; margin: .6rem 0 0; }
+.gd-input-cap { display: grid; grid-template-columns: 1fr 1fr; }
+.gd-input-capbtn {
+  border: 0; border-radius: 0; padding: .8rem .5rem;
+  display: flex; flex-direction: column; align-items: center; gap: .15rem;
+  outline: 2px solid currentColor; outline-offset: -6px;
+}
+.gd-input-captitle { display: flex; align-items: center; gap: .4rem; font-weight: 800; }
+.gd-input-capsub { font-size: 13px; font-weight: 600; opacity: .85; font-variant-numeric: tabular-nums; }
+.gd-input-masuk { background: #147A4A; color: #fff; }
+.gd-input-keluar { background: #B3261E; color: #fff; }
+.gd-input-capbtn:disabled { background: #e8e4d6; color: #8a8778; }
+.gd-input-capbtn:not(:disabled):active { filter: brightness(.92); }
+@media (max-width: 360px) {
+  .gd-input-stock { font-size: 1.3rem; }
+  .gd-input-cap { grid-template-columns: 1fr; }
+}
+
 /* BottomNav gudang: warna identitas per tab (hover + aktif + fokus keyboard). */
 .bnav-item { color: #6c757d; }
 .bnav-item:hover, .bnav-item:focus-visible { color: var(--aksen); }
